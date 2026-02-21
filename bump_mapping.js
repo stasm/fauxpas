@@ -128,13 +128,38 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
     }
 }
 
+vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
+{
+    vec2 viewOffset = -eyeDir.xy * depth_scale;
+
+    float currentHeight = 0.0;
+    vec2 currentOffset = vec2(0.0);
+
+    for (int i = 0; i < 32; i++)
+    {
+        if (float(i) >= num_layers) break;
+        float sampledHeight = texture2D(tex_depth, uv + currentOffset).r;
+        float heightDiff = (sampledHeight - 0.5) - currentHeight;
+        float stepScale = 1.0 / float(i + 1);
+        currentOffset += viewOffset * heightDiff * stepScale;
+        currentHeight += heightDiff * stepScale;
+    }
+
+    return currentOffset;
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
     vec3 view_dir = normalize(ts_view_pos - ts_frag_pos);
 
     // Only perturb the texture coordinates if a parallax technique is selected
-    vec2 uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
+    vec2 uv;
+    if (type == 5) {
+        uv = frag_uv + getParallaxOffset(frag_uv, view_dir);
+    } else {
+        uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
+    }
 
     vec3 albedo = texture2D(tex_diffuse, uv).rgb;
     if (show_tex == 0) { albedo = vec3(1,1,1); }
@@ -350,6 +375,7 @@ function update_and_render() {
             case "parallax": type = 2; break;
             case "steep": type = 3; break;
             case "pom": type = 4; break;
+            case "iterative": type = 5; break;
         }
 
         var step = document.getElementById("scale_control");
