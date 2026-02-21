@@ -80,6 +80,7 @@ uniform sampler2D tex_depth;
     4 = Parallax occlusion mapping
 */
 uniform int type;
+uniform int shadow_type;
 uniform int show_tex;
 uniform float depth_scale;
 uniform float num_layers;
@@ -148,6 +149,235 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     return currentOffset;
 }
 
+float pomHardShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= num_layers) break;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        if (sampleDepth < rayDepth) {
+            return 0.0;
+        }
+    }
+    return 1.0;
+}
+
+float pomSoftShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+    float maxOcclusion = 0.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= num_layers) break;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float occlusion = (rayDepth - sampleDepth) / (float(i + 1) * depthPerStep);
+        maxOcclusion = max(maxOcclusion, occlusion);
+    }
+    return clamp(1.0 - maxOcclusion, 0.0, 1.0);
+}
+
+float iterativeShadow(vec2 uv, vec3 lightDir)
+{
+    const float SHADOW_STRENGTH = 4.0;
+    vec2 rayStep = lightDir.xy * depth_scale;
+    float heightStep = lightDir.z * depth_scale;
+    float surfaceHeight = 1.0 - texture2D(tex_depth, uv).r;
+
+    float shadow = 0.0;
+    for (int i = 1; i <= 32; i++) {
+        if (float(i) > num_layers) break;
+        float t = sqrt(float(i) / num_layers);
+        float rayHeight = surfaceHeight + heightStep * t;
+        float sampleHeight = 1.0 - texture2D(tex_depth, uv + rayStep * t).r;
+        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
+    }
+
+    return clamp(1.0 - shadow * SHADOW_STRENGTH, 0.0, 1.0);
+}
+
+float contactHardeningShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+    float penumbraScale = 0.5;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+    float shadow = 1.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= num_layers) break;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        if (sampleDepth < rayDepth) {
+            float occluderDist = float(i + 1) * depthPerStep;
+            float totalDist = surfaceDepth;
+            shadow = clamp(occluderDist / (totalDist * penumbraScale), 0.0, 1.0);
+            return shadow;
+        }
+    }
+    return 1.0;
+}
+
+float binarySearchShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+    float prevRayDepth = rayDepth;
+    vec2 prev_uv = cur_uv;
+
+    bool found = false;
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= num_layers) break;
+        prev_uv = cur_uv;
+        prevRayDepth = rayDepth;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        if (sampleDepth < rayDepth) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) return 1.0;
+
+    // Binary search refinement within the intersection interval
+    vec2 lo_uv = prev_uv;
+    float lo_depth = prevRayDepth;
+    vec2 hi_uv = cur_uv;
+    float hi_depth = rayDepth;
+
+    for (int i = 0; i < 8; i++) {
+        vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
+        float mid_depth = (lo_depth + hi_depth) * 0.5;
+        float sampleDepth = texture2D(tex_depth, mid_uv).r;
+        if (sampleDepth < mid_depth) {
+            hi_uv = mid_uv;
+            hi_depth = mid_depth;
+        } else {
+            lo_uv = mid_uv;
+            lo_depth = mid_depth;
+        }
+    }
+
+    float finalSample = texture2D(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float finalRay = (lo_depth + hi_depth) * 0.5;
+    return finalSample < finalRay ? 0.0 : 1.0;
+}
+
+float coneTracedShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+    float coneSlope = 0.5;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+    float minRatio = 1.0;
+
+    for (int i = 1; i <= 32; i++) {
+        if (float(i) > num_layers) break;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float coneRadius = coneSlope * float(i) * depthPerStep;
+        float penetration = rayDepth - sampleDepth;
+        if (penetration > 0.0) {
+            float ratio = coneRadius / penetration;
+            minRatio = min(minRatio, ratio);
+        }
+    }
+
+    return clamp(minRatio, 0.0, 1.0);
+}
+
+float reliefMappingShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texture2D(tex_depth, uv).r;
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float depthPerStep = surfaceDepth / num_layers;
+    vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
+
+    float rayDepth = surfaceDepth;
+    vec2 cur_uv = uv;
+    float prevRayDepth = rayDepth;
+    vec2 prev_uv = cur_uv;
+
+    bool found = false;
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= num_layers) break;
+        prev_uv = cur_uv;
+        prevRayDepth = rayDepth;
+        cur_uv += uvPerStep;
+        rayDepth -= depthPerStep;
+        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        if (sampleDepth < rayDepth) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) return 1.0;
+
+    // Binary search refinement (5 iterations)
+    vec2 lo_uv = prev_uv;
+    float lo_depth = prevRayDepth;
+    vec2 hi_uv = cur_uv;
+    float hi_depth = rayDepth;
+
+    for (int i = 0; i < 5; i++) {
+        vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
+        float mid_depth = (lo_depth + hi_depth) * 0.5;
+        float sampleDepth = texture2D(tex_depth, mid_uv).r;
+        if (sampleDepth < mid_depth) {
+            hi_uv = mid_uv;
+            hi_depth = mid_depth;
+        } else {
+            lo_uv = mid_uv;
+            lo_depth = mid_depth;
+        }
+    }
+
+    float finalRay = (lo_depth + hi_depth) * 0.5;
+    float finalSample = texture2D(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float depthDiff = finalRay - finalSample;
+    return clamp(1.0 - depthDiff * num_layers, 0.0, 1.0);
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -165,17 +395,26 @@ void main(void)
     if (show_tex == 0) { albedo = vec3(1,1,1); }
     vec3 ambient = 0.3 * albedo;
 
+    float shadow = 1.0;
+    if (shadow_type == 1) shadow = pomHardShadow(uv, light_dir);
+    else if (shadow_type == 2) shadow = pomSoftShadow(uv, light_dir);
+    else if (shadow_type == 3) shadow = iterativeShadow(uv, light_dir);
+    else if (shadow_type == 4) shadow = contactHardeningShadow(uv, light_dir);
+    else if (shadow_type == 5) shadow = binarySearchShadow(uv, light_dir);
+    else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
+    else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
+
     if (type == 0) {
         // No bump mapping
         vec3 norm = vec3(0,0,1);
         float diffuse = max(dot(light_dir, norm), 0.0);
-        gl_FragColor = vec4(diffuse * albedo + ambient, 1.0);
+        gl_FragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
 
     } else {
         // Normal mapping
         vec3 norm = normalize(texture2D(tex_norm, uv).rgb * 2.0 - 1.0);
         float diffuse = max(dot(light_dir, norm), 0.0);
-        gl_FragColor = vec4(diffuse * albedo + ambient, 1.0);
+        gl_FragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
     }
 }
 `;
@@ -412,6 +651,21 @@ function update_and_render() {
         var show_tex = document.getElementById('show_tex').checked;
         var uni = gl.getUniformLocation(pgm, "show_tex");
         gl.uniform1i(uni, show_tex);
+    }
+
+    {
+        var shadow = 0;
+        switch (document.querySelector('input[name="shadow_type"]:checked').value) {
+            case "hard": shadow = 1; break;
+            case "soft": shadow = 2; break;
+            case "iterative_shadow": shadow = 3; break;
+            case "contact": shadow = 4; break;
+            case "binary": shadow = 5; break;
+            case "cone": shadow = 6; break;
+            case "relief": shadow = 7; break;
+        }
+        var uni = gl.getUniformLocation(pgm, "shadow_type");
+        gl.uniform1i(uni, shadow);
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);

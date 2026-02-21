@@ -29,6 +29,13 @@
         .controls p {
             margin: 6px 0;
         }
+        .radio-columns {
+            display: flex;
+            gap: 32px;
+        }
+        .radio-columns p {
+            margin: 0;
+        }
         input[type="radio"],
         input[type="checkbox"] {
             margin-right: 4px;
@@ -53,14 +60,27 @@
     <canvas id="gl_canvas" width="680" height="382"></canvas>
 
     <div class="controls">
-        <p>
-            <input type="radio" name="shading_type" value="diffuse"/>No bump mapping<br/>
-            <input type="radio" name="shading_type" value="normal"/>Normal mapping<br/>
-            <input type="radio" name="shading_type" value="parallax"/>Parallax mapping<br/>
-            <input type="radio" name="shading_type" value="steep"/>Steep parallax mapping<br/>
-            <input type="radio" name="shading_type" value="pom"/>Parallax occlusion mapping<br/>
-            <input type="radio" name="shading_type" value="iterative" checked/>Iterative parallax mapping
-        </p>
+        <div class="radio-columns">
+            <p>
+                <input type="radio" name="shading_type" value="diffuse"/>No bump mapping<br/>
+                <input type="radio" name="shading_type" value="normal"/>Normal mapping<br/>
+                <input type="radio" name="shading_type" value="parallax"/>Parallax mapping<br/>
+                <input type="radio" name="shading_type" value="steep"/>Steep parallax mapping<br/>
+                <input type="radio" name="shading_type" value="pom"/>Parallax occlusion mapping<br/>
+                <input type="radio" name="shading_type" value="iterative" checked/>Iterative parallax mapping
+            </p>
+            <p>
+                Self-shadows:<br/>
+                <input type="radio" name="shadow_type" value="none" checked/>None<br/>
+                <input type="radio" name="shadow_type" value="hard"/>Hard POM<br/>
+                <input type="radio" name="shadow_type" value="soft"/>Soft POM<br/>
+                <input type="radio" name="shadow_type" value="iterative_shadow"/>Fast approximate<br/>
+                <input type="radio" name="shadow_type" value="contact"/>Contact-hardening<br/>
+                <input type="radio" name="shadow_type" value="binary"/>Binary search<br/>
+                <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft<br/>
+                <input type="radio" name="shadow_type" value="relief"/>Relief mapping
+            </p>
+        </div>
         <p>
             <input type="checkbox" id="show_tex" checked/>Show diffuse texture<br/>
             <table>
