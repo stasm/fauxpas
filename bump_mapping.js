@@ -84,6 +84,7 @@ uniform int shadow_type;
 uniform int show_tex;
 uniform float depth_scale;
 uniform float num_layers;
+uniform float shadow_steps;
 
 varying vec2 frag_uv;
 varying vec3 ts_light_pos;
@@ -207,15 +208,15 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
-        if (float(i) > num_layers) break;
-        float t = pow(float(i) / num_layers, alpha);
+        if (float(i) > shadow_steps) break;
+        float t = pow(float(i) / shadow_steps, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
         float sampleHeight = 1.0 - texture2D(tex_depth, uv + rayStep * t).r;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
     // Scale-invariant normalization: strength = N makes sample count a pure quality knob
-    return clamp(1.0 - shadow * num_layers, 0.0, 1.0);
+    return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
 }
 
 float contactHardeningShadow(vec2 uv, vec3 lightDir)
@@ -333,7 +334,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texture2D(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
 
     float rayDepth = surfaceDepth;
@@ -343,7 +344,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
 
     bool found = false;
     for (int i = 0; i < 32; i++) {
-        if (float(i) >= num_layers) break;
+        if (float(i) >= shadow_steps) break;
         prev_uv = cur_uv;
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
@@ -379,7 +380,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     float finalRay = (lo_depth + hi_depth) * 0.5;
     float finalSample = texture2D(tex_depth, (lo_uv + hi_uv) * 0.5).r;
     float depthDiff = finalRay - finalSample;
-    return clamp(1.0 - depthDiff * num_layers, 0.0, 1.0);
+    return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
 
 void main(void)
@@ -670,6 +671,15 @@ function update_and_render() {
         }
         var uni = gl.getUniformLocation(pgm, "shadow_type");
         gl.uniform1i(uni, shadow);
+
+        var shadowStepCtrl = document.getElementById("shadow_step_control");
+        shadowStepCtrl.style.visibility = (shadow == 3 || shadow == 7) ? "visible" : "hidden";
+    }
+
+    {
+        var shadowSteps = parseFloat(document.getElementById("shadow_steps").value);
+        var uni = gl.getUniformLocation(pgm, "shadow_steps");
+        gl.uniform1f(uni, shadowSteps);
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);
