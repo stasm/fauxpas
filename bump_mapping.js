@@ -195,23 +195,27 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - maxOcclusion, 0.0, 1.0);
 }
 
-float iterativeShadow(vec2 uv, vec3 lightDir)
+float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
-    const float SHADOW_STRENGTH = 4.0;
     vec2 rayStep = lightDir.xy * depth_scale;
     float heightStep = lightDir.z * depth_scale;
     float surfaceHeight = 1.0 - texture2D(tex_depth, uv).r;
 
+    // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
+    // peaks (h~1) -> high alpha (contact shadows)
+    float alpha = mix(0.5, 2.0, surfaceHeight);
+
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
         if (float(i) > num_layers) break;
-        float t = sqrt(float(i) / num_layers);
+        float t = pow(float(i) / num_layers, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
         float sampleHeight = 1.0 - texture2D(tex_depth, uv + rayStep * t).r;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
-    return clamp(1.0 - shadow * SHADOW_STRENGTH, 0.0, 1.0);
+    // Scale-invariant normalization: strength = N makes sample count a pure quality knob
+    return clamp(1.0 - shadow * num_layers, 0.0, 1.0);
 }
 
 float contactHardeningShadow(vec2 uv, vec3 lightDir)
@@ -398,7 +402,7 @@ void main(void)
     float shadow = 1.0;
     if (shadow_type == 1) shadow = pomHardShadow(uv, light_dir);
     else if (shadow_type == 2) shadow = pomSoftShadow(uv, light_dir);
-    else if (shadow_type == 3) shadow = iterativeShadow(uv, light_dir);
+    else if (shadow_type == 3) shadow = fastApproximateShadow(uv, light_dir);
     else if (shadow_type == 4) shadow = contactHardeningShadow(uv, light_dir);
     else if (shadow_type == 5) shadow = binarySearchShadow(uv, light_dir);
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);

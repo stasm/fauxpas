@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fast Approximate Parallax Shadows</title>
+</head>
+<body>
+
+<h1>Fast Approximate Parallax Shadows</h1>
+<p><em>A Cheap Empirical Heuristic for Height-Map Self-Shadowing</em></p>
+
+<h2>Abstract</h2>
+
+<p>We present Fast Approximate Parallax Shadows (FXPS), a cheap empirical heuristic for approximating soft self-shadowing in height-mapped surfaces. The technique is designed for contexts where visual plausibility matters more than physical accuracy&mdash;stylized rendering, mobile GPUs, legacy pipelines, and performance-constrained material layers. It combines a power-law sampling distribution with an inverse-index attenuation weight, producing a shadow probe whose effective sensitivity is <em>log-uniform</em> along the ray&mdash;equal attention is allocated to each multiplicative decade of distance. We show that this property is invariant across a single-parameter family of power-law exponents &alpha;, and that the correct shadow strength normalization is simply N (the iteration count), making sample count a pure quality knob.</p>
+
+<p>Our central contribution is the observation that the surface height at each fragment provides a natural parameterization for &alpha;. Peaks and ridges (high elevation) face nearby occluders and benefit from high &alpha;, which concentrates samples near the ray origin for contact shadow detection. Valleys and crevices (low elevation) are shadowed by distant rims and benefit from low &alpha;, which extends sample reach into the far field. This <em>height-adaptive probing</em> strategy makes each fragment&rsquo;s shadow probe geometrically appropriate to its local topology, without additional texture fetches or parameter tuning. The result is plausible contact hardening and soft penumbrae at 2&ndash;4 iterations per fragment&mdash;a meaningful visual improvement over hard-shadow POM or no self-shadowing at all, for the same texture fetch budget.</p>
+
+<h2>1. Introduction</h2>
+
+<p>Parallax Occlusion Mapping (POM) enhances height-mapped surfaces by ray-marching along a view or light direction to determine visibility. Standard approaches to POM self-shadowing use a linear distribution of samples along the ray, t(<em>i</em>) = <em>i</em>/<em>N</em>, with a binary or smoothed visibility test. While effective at high iteration counts, this strategy suffers from visible banding at low sample counts (N &le; 4) and provides no natural mechanism for contact hardening&mdash;the perceptual property whereby shadows are sharpest near occluder-receiver contact and soften with distance.</p>
+
+<p>We propose Fast Approximate Parallax Shadows (FXPS), a cheap empirical heuristic designed for contexts where visual plausibility matters more than physical accuracy&mdash;stylized rendering, mobile and low-power GPUs, legacy pipelines, and any scenario where a 2&ndash;4 sample shadow probe is the entire budget. FXPS is not a physically based technique and does not attempt to compete with ground-truth visibility solutions. Instead, it aims to extract the maximum perceptual quality from an extremely limited sample count through three ideas. First, replacing the linear step distribution with a power-law function and the binary test with a weighted maximum. Second, the observation that these choices produce a shadow probe with log-uniform effective sensitivity&mdash;a property that holds across an entire family of power-law exponents and that provides a principled basis for the 1/<em>i</em> weight. Third, and most significantly, the realization that the surface height at each fragment is a natural, zero-cost selector for the power-law exponent, yielding a probe distribution that adapts to the local geometry of the height field.</p>
+
+<h2>2. Background and Related Work</h2>
+
+<p>Self-shadowing of textured surfaces has been an active area of research for nearly four decades, with techniques spanning a broad spectrum of precomputation cost, runtime overhead, and visual fidelity. We survey the principal approaches to contextualize FXPS within the existing landscape.</p>
+
+<h3>2.1 Horizon Mapping</h3>
+
+<p>The earliest dedicated approach to bump-map self-shadowing is Max&rsquo;s horizon mapping [Max 1988], which precomputes, for each texel and for a discrete set of azimuthal directions, the elevation angle to the horizon&mdash;the highest point visible from that texel along each direction. At runtime, a fragment is shadowed if the light&rsquo;s elevation falls below the stored horizon angle. Sloan and Cohen [2000] mapped the technique to hardware-accelerated rendering, achieving interactive frame rates. Horizon mapping produces hard shadows with no per-frame ray marching, but requires substantial precomputed storage (one horizon angle per direction per texel) and cannot adapt to dynamic height fields. The shadow quality is also limited by the angular discretization of the azimuth directions.</p>
+
+<h3>2.2 Relief Mapping and Linear Ray Marching</h3>
+
+<p>Policarpo, Oliveira, and Comba [2005] introduced relief mapping, which ray-marches through a height field in tangent space using a uniform linear search followed by a binary refinement step. This was the first technique to produce per-pixel self-occlusion and self-shadowing from height maps without precomputation, supporting fully dynamic lighting. McGuire and McGuire [2005] proposed steep parallax mapping, a simplified variant with fewer iterations. These approaches produce hard shadows: a ray either intersects the height field (shadowed) or does not (lit), with no intermediate softness. Banding artifacts from the discrete linear search are visible at low iteration counts.</p>
+
+<h3>2.3 Parallax Occlusion Mapping with Soft Shadows</h3>
+
+<p>Tatarchuk [2006] extended the relief mapping framework into Parallax Occlusion Mapping (POM), adding a soft shadowing heuristic. In her approach, multiple samples are taken along the light ray, and the shadow contribution is accumulated by scaling each sample&rsquo;s depth difference by a distance-based attenuation factor. The resulting visibility coefficient provides a smooth gradient from lit to shadowed, eliminating the hard binary transition. This is the closest prior work to FXPS and shares the same structural skeleton: a loop over N samples, a depth comparison, and a distance-weighted accumulation. FXPS differs in three respects: the use of a power-law (rather than linear) step distribution, the specific 1/<em>i</em> weight (which we show produces log-uniform sensitivity), and the height-adaptive parameterization of the step exponent.</p>
+
+<h3>2.4 Cone Step Mapping</h3>
+
+<p>Dummer [2006] introduced cone step mapping (CSM), which precomputes, for each texel, the radius of the largest empty cone that can be placed at that texel without intersecting the height field. At runtime, the ray advances by the cone radius at each step, enabling aggressive space-leaping that converges in far fewer iterations than linear search. Policarpo and Oliveira [2007] proposed relaxed cone stepping (RCS), which allows the ray to pierce the surface at most once, producing wider cones and faster convergence, followed by a binary refinement. These techniques excel at view-ray intersection finding and can be extended to shadow rays, but require a precomputed cone map (one extra channel per texel), making them unsuitable for dynamic height fields and increasing memory bandwidth.</p>
+
+<h3>2.5 Screen-Space and Hybrid Approaches</h3>
+
+<p>Screen-space contact shadows, widely adopted in modern game engines, ray-march against the depth buffer to detect short-range occlusion that shadow maps miss. These operate at the scene geometry scale and complement shadow maps for macro-scale shadows. Bend Studio&rsquo;s screen-space shadow technique [SIGGRAPH 2023] demonstrated high-quality results for sun shadows in production titles. With the advent of hardware-accelerated ray tracing, hybrid approaches that combine rasterized shadow maps with ray-traced shadows have emerged [AMD FidelityFX Hybrid Shadows]. These operate at the scene level and are orthogonal to FXPS, which addresses self-shadowing within a single height-mapped surface.</p>
+
+<h3>2.6 Radiosity Normal Mapping</h3>
+
+<p>Green [2007] presented efficient self-shadowed radiosity normal mapping at Valve, which precomputes directional occlusion for height-field texels and stores it as a modification to the radiosity normal map basis. This technique is elegant and fast at runtime (requiring no additional per-frame ray marching) but is limited to static height fields and baked lighting configurations.</p>
+
+<h3>2.7 Positioning of FXPS</h3>
+
+<p>FXPS is an empirical heuristic, not a physically based visibility computation. It does not model penumbra geometry, light source extent, or true height-field occlusion. Its softness is an artifact of the weight function, and its shadow boundaries are approximations that would not match a ground-truth ray tracer at any sample count.</p>
+
+<p>This is by design. FXPS targets the bottom end of the cost spectrum: stylized and mobile rendering, legacy forward pipelines, performance-constrained material layers, and any context where 2&ndash;4 texture fetches is the entire shadow budget. In this regime, the relevant comparison is not against physically correct visibility but against other cheap heuristics&mdash;linear POM hard shadows, simple N&middot;L darkening, or no self-shadowing at all. Against that baseline, FXPS offers a meaningful visual improvement: plausible contact hardening, soft penumbral fade, and height-adaptive probe placement, all for the same number of texture fetches as a standard hard-shadow POM pass. It requires no precomputed data structures (unlike horizon mapping, cone step mapping, or radiosity normal mapping), no temporal accumulation, and no additional render targets.</p>
+
+<h2>3. The Power-Law Sampling Family</h2>
+
+<p>Standard POM uses a linear distribution t(<em>i</em>) = <em>i</em>/<em>N</em>. We generalize this to a power-law family parameterized by exponent &alpha;:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>t</em>(<em>i</em>) = (<em>i</em> / <em>N</em>)<sup>&alpha;</sup></p>
+
+<p>The exponent &alpha; controls where samples concentrate along the ray. Low &alpha; (e.g. 0.5, the square-root) clusters samples toward the far end, improving detection of distant macro-scale occluders. High &alpha; (e.g. 2.0 or 3.0) clusters samples near the origin, prioritizing contact shadow detection. For N = 4, the sample positions are:</p>
+
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>&alpha;</th><th>Name</th><th>t&#8321;</th><th>t&#8322;</th><th>t&#8323;</th><th>t&#8324;</th></tr>
+<tr><td>0.5</td><td>sqrt</td><td>0.500</td><td>0.707</td><td>0.866</td><td>1.000</td></tr>
+<tr><td>1.0</td><td>linear</td><td>0.250</td><td>0.500</td><td>0.750</td><td>1.000</td></tr>
+<tr><td>2.0</td><td>quadratic</td><td>0.063</td><td>0.250</td><td>0.563</td><td>1.000</td></tr>
+<tr><td>3.0</td><td>cubic</td><td>0.016</td><td>0.125</td><td>0.422</td><td>1.000</td></tr>
+</table>
+<p><em>Table 1.</em> Sample positions for different power-law exponents at N = 4. Higher &alpha; concentrates samples near the ray origin; lower &alpha; pushes them toward the far end.</p>
+
+<h2>4. Weighting and Effective Sensitivity</h2>
+
+<p>Rather than a binary occlusion test, we accumulate the shadow contribution S as a running maximum over a weighted depth difference:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>S</em> = max( <em>S</em>, (<em>H</em>_sample &minus; <em>H</em>_ray) / <em>i</em> )</p>
+
+<p>We now characterize the <em>effective sensitivity</em> of the probe&mdash;the product of sampling density in ray-space and the weight applied at each sample.</p>
+
+<p>For the power-law family, <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, giving sampling density d<em>i</em>/d<em>t</em> = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup>. The weight is <em>w</em> = 1/<em>i</em> = 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>). Their product:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&rho;(<em>t</em>) = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup> &middot; 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>) = 1/(&alpha;<em>t</em>)</p>
+
+<p>The exponent &alpha; cancels into a constant prefactor. <strong>The 1/<em>i</em> weight produces log-uniform sensitivity for any power-law stepping function.</strong> Reparameterizing in log-space with <em>u</em> = ln(<em>t</em>), the sensitivity per unit <em>u</em> becomes &rho;(<em>t</em>) &middot; <em>t</em> = 1/&alpha;, a constant. The algorithm allocates equal attention to each multiplicative decade of distance&mdash;the interval [0.01, 0.1] receives the same total sensitivity as [0.1, 1.0].</p>
+
+<canvas id="fig1" width="700" height="380"></canvas>
+<p><em>Figure 1.</em> Left: effective sensitivity &rho;(t) = 1/(&alpha;t) for different power-law exponents. All curves are the same 1/t shape, scaled by 1/&alpha;. Right: sensitivity per log-decade &rho;(t)&middot;t = 1/&alpha;, a constant for each &alpha;. This is the log-uniform invariant.</p>
+
+<h3>4.1 Distance-Attenuation Interpretation</h3>
+
+<p>While the log-uniform invariant holds for any &alpha;, the 1/<em>i</em> weight maps to a <em>different distance-attenuation curve</em> depending on the exponent. Since <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, the weight expressed in ray-space is:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;1/<em>i</em> = (1/<em>N</em>) &middot; <em>t</em><sup>&minus;1/&alpha;</sup></p>
+
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>&alpha;</th><th>Step</th><th>Ray-space atten.</th><th>Falloff</th><th>Character</th></tr>
+<tr><td>0.5</td><td>sqrt</td><td>t<sup>&minus;2</sup></td><td>Inverse square</td><td>Aggressive</td></tr>
+<tr><td>1.0</td><td>linear</td><td>t<sup>&minus;1</sup></td><td>Inverse linear</td><td>Moderate</td></tr>
+<tr><td>2.0</td><td>quadratic</td><td>t<sup>&minus;0.5</sup></td><td>Inverse sqrt</td><td>Gentle</td></tr>
+<tr><td>3.0</td><td>cubic</td><td>t<sup>&minus;0.33</sup></td><td>Near-constant</td><td>Very gentle</td></tr>
+</table>
+<p><em>Table 2.</em> Distance-attenuation curves implied by the 1/i weight at different power-law exponents. As &alpha; increases, the attenuation in ray-space becomes softer.</p>
+
+<canvas id="fig2" width="700" height="420"></canvas>
+<p><em>Figure 2.</em> The same 1/i weight projected into ray-space at different &alpha;. At &alpha; = 0.5 (blue), the curve is steep&mdash;near-field positions receive far more weight than far-field. At &alpha; = 2.0 (amber), the curve is nearly flat. All curves converge to 1 at t = 1.</p>
+
+<canvas id="fig3" width="700" height="600"></canvas>
+<p><em>Figure 3.</em> Discrete sample placement and weights for N = 4 at each &alpha;. Bar height shows the 1/i weight; bar position shows where that sample falls on the ray. The red shaded region is unsampled. As &alpha; increases, the first sample moves toward the ray origin and the unsampled gap shrinks.</p>
+
+<p>As &alpha; increases, the attenuation in ray-space becomes softer. It is important to understand what this means in the discrete case. The 1/<em>i</em> weight assigns the same values regardless of &alpha;: {1, 1/2, 1/3, 1/4} for i = {1, 2, 3, 4}. It is a fixed index-space ramp that does not know or care about the sampling distribution. What &alpha; controls is <em>where those indices land on the ray</em>.</p>
+
+<p>For &alpha; = 0.5 (valley), the four samples land at t = {0.50, 0.71, 0.87, 1.00}. Weight 1 is assigned to t = 0.50, weight 0.25 to t = 1.00&mdash;a 4:1 ratio across a 2:1 distance range. Projected into ray-space, this is a steep falloff. The first sample gets strongly prioritized over the last, producing a perceptual effect resembling contact hardening across the [0.5, 1.0] band. Note, however, that this is not detecting true contact shadows&mdash;the entire [0, 0.5) range is unsampled, and no amount of weight amplification can detect an occluder at a position that was never queried.</p>
+
+<p>For &alpha; = 2.0 (peak), the four samples land at t = {0.063, 0.25, 0.56, 1.00}. The same weight 1 is now assigned to t = 0.063, genuinely in the near field. Weight 0.25 goes to t = 1.00&mdash;a 4:1 ratio across a 16:1 distance range. Projected into ray-space, this is a much gentler curve. The first sample does not overwhelmingly dominate; the far-field samples retain meaningful influence. This is appropriate because the samples already span nearly the full ray, so the weight does not need to impose a strong spatial preference.</p>
+
+<p>The different distance-attenuation curves in the table above are therefore not a compensatory mechanism&mdash;the weight is not &ldquo;aware&rdquo; of the sampling distribution and adapting to it. Rather, the same fixed index-space ramp is <em>projected through a different nonlinear mapping</em> depending on &alpha;. When that mapping compresses a wide ray-distance range into a narrow index range (low &alpha;), the projected curve is steep. When it stretches a wide ray-distance range across many indices (high &alpha;), the projected curve is gentle. The log-uniform effective sensitivity falls out of the <em>algebra</em> of this projection, not from any adaptive behavior in the weight itself.</p>
+
+<p>This distinction matters for understanding the technique honestly. The 1/<em>i</em> weight is the unique index-space ramp that, when projected through any power-law step function, yields log-uniform sensitivity in the continuous limit. It is a principled choice of weight&mdash;but it is a fixed formula applied uniformly, and the apparent &ldquo;adaptation&rdquo; to different &alpha; regimes is entirely a consequence of the projection geometry.</p>
+
+<h3>4.2 The Continuous-Discrete Gap</h3>
+
+<p>An important caveat: the log-uniform property is a statement about the continuous limit. At very low iteration counts, the discrete sample placement dominates behavior. With &alpha; = 0.5 and N = 4, the first sample falls at t = 0.50&mdash;the entire [0, 0.5) range is unsampled. The four samples have weights 1, 1/2, 1/3, 1/4, forming a monotonically decreasing discrete ramp over the [0.5, 1.0] band. The visual result at low N is driven as much by this discrete weight gradient as by the continuous log-uniform property.</p>
+
+<p>The continuous analysis nevertheless justifies the <em>choice</em> of 1/<em>i</em> as the weighting function: it is the unique weight that produces log-uniform sensitivity in the limit, and it provides a principled starting point from which the discrete behavior inherits its favorable gradient. The question becomes: how can we ensure that the discrete samples actually cover the region of the ray that matters for each fragment? This motivates the height-adaptive approach of Section 6.</p>
+
+<h2>5. Scale-Invariant Normalization</h2>
+
+<p>For an occluder at fixed position <em>t</em>* along the ray, the nearest sample index scales as <em>i</em>* &asymp; <em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>. The raw shadow contribution is:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&Delta;<em>H</em> / <em>i</em>* &asymp; &Delta;<em>H</em> / (<em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>)</p>
+
+<p>This is inversely proportional to N. Multiplying by strength = N cancels the dependence exactly:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>S</em>_final = <em>N</em> &middot; &Delta;<em>H</em> / (<em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>) = &Delta;<em>H</em> / <em>t</em>*<sup>1/&alpha;</sup></p>
+
+<p>The shadow response becomes <strong>independent of iteration count</strong>. N can be adjusted purely as a quality knob&mdash;no secondary strength parameter is needed. Shadow intensity remains consistent across quality levels; only the spatial resolution of occluder detection changes.</p>
+
+<p>This also explains a practical observation: setting the shadow strength above N causes banding at low sample counts. The shadow value saturates more aggressively, destroying the smooth gradient between fully lit and fully shadowed regions. With strength = N, the output stays in the linear range of the clamp, preserving the continuous falloff.</p>
+
+<p>Crucially, this result holds for <em>any</em> &alpha; and <em>any</em> N. It is an exact discrete property, not an asymptotic one, which makes it robust in the low-iteration regime where the technique operates.</p>
+
+<h2>6. Height-Adaptive Probing</h2>
+
+<p>The analysis so far establishes a family of shadow probes parameterized by &alpha;, all sharing the log-uniform invariant and the strength = N normalization. The question remains: what value of &alpha; should be used?</p>
+
+<p>A fixed &alpha; forces a global trade-off between contact shadow detection (high &alpha;) and distant occluder coverage (low &alpha;). At N = 4, this trade-off is severe: &alpha; = 0.5 misses the entire near-field, while &alpha; = 3.0 puts 98% of samples in the first half of the ray. Our central observation is that <strong>the height field itself resolves this trade-off.</strong></p>
+
+<h3>6.1 Geometric Motivation</h3>
+
+<p>Consider the relationship between a fragment&rsquo;s elevation and its likely shadow topology:</p>
+
+<p><strong>High elevation (peaks, ridges, plateaus).</strong> The fragment sits at or near the top of the height field. The occluders that cast shadows on it are necessarily nearby features at similar elevation&mdash;neighboring peaks, ridge edges, surface undulations. Shadows at high elevation are dominated by close-range contact effects. This calls for high &alpha; to concentrate samples near the ray origin.</p>
+
+<p><strong>Low elevation (valleys, crevices, basins).</strong> The fragment sits at the bottom of the height field. The dominant shadows come from distant rims and ridges towering above, casting broad, soft shadows across the valley floor. This calls for low &alpha; to extend sample reach into the far field, where these large-scale occluders reside.</p>
+
+<p>This mapping is both geometrically natural and computationally free&mdash;the surface height at the shading point is already fetched as part of the standard POM pipeline.</p>
+
+<h3>6.2 Parameterization</h3>
+
+<p>We define the per-fragment exponent as a linear interpolation between minimum and maximum bounds:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&alpha; = mix(&alpha;_min, &alpha;_max, <em>h</em>)</p>
+
+<p>where <em>h</em> is the sampled surface height in [0, 1]. We recommend default bounds of &alpha;_min = 0.5 and &alpha;_max = 2.0. At these bounds, N = 4 produces the following behavior at the extremes:</p>
+
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>Height</th><th>&alpha;</th><th>t&#8321;</th><th>t&#8324;</th><th>Ray coverage</th><th>Near-field</th><th>Far-field</th></tr>
+<tr><td>0.0</td><td>0.5</td><td>0.500</td><td>1.000</td><td>[0.50, 1.00]</td><td>None</td><td>Full</td></tr>
+<tr><td>0.5</td><td>1.25</td><td>0.177</td><td>1.000</td><td>[0.18, 1.00]</td><td>Partial</td><td>Full</td></tr>
+<tr><td>1.0</td><td>2.0</td><td>0.063</td><td>1.000</td><td>[0.06, 1.00]</td><td>Strong</td><td>Sparse</td></tr>
+</table>
+<p><em>Table 3.</em> Adaptive probe behavior at N = 4. Valley fragments scan the far field; peak fragments prioritize contact shadows. Mid-elevation fragments balance both.</p>
+
+<canvas id="fig4" width="700" height="520"></canvas>
+<p><em>Figure 4.</em> Height-adaptive probe distribution at N = 4. Valley fragments (&alpha; = 0.5) cluster samples in the far field with a large unsampled near-field gap. Peak fragments (&alpha; = 2.0) push the first sample to t = 0.063, covering nearly the full ray. Mid-elevation fragments interpolate between the two extremes.</p>
+
+<p>At &alpha; = 2.0, the first of four samples lands at t = 0.063, covering 94% of the ray. At &alpha; = 0.5, the four samples span the [0.5, 1.0] band. Between these extremes, the probe smoothly transitions from contact-focused to distance-focused, driven entirely by the local geometry.</p>
+
+<h3>6.3 Properties</h3>
+
+<p><strong>No additional cost.</strong> The only change from a fixed-&alpha; implementation is replacing sqrt with pow and adding a mix to compute &alpha;. On modern GPU hardware this is negligible.</p>
+
+<p><strong>Spatial continuity.</strong> Since the height field is continuous across the surface, &alpha; varies smoothly between adjacent fragments. Shadow boundaries do not exhibit discontinuities from the &alpha; transition.</p>
+
+<p><strong>Invariants preserved.</strong> Both the log-uniform effective sensitivity (Section 4) and the strength = N normalization (Section 5) hold for any &alpha;, so they hold per-fragment regardless of the local height. No per-fragment parameter adjustment is needed beyond the &alpha; selection itself.</p>
+
+<p><strong>Addresses the continuous-discrete gap.</strong> The critique that log-uniform sensitivity is irrelevant at N = 4 (Section 4.2) assumed a fixed &alpha; = 0.5 where samples never reach the near field. With adaptive &alpha;, high-elevation fragments&mdash;precisely the ones that need contact shadow detection&mdash;push their samples into the near field via high &alpha;, making the log-uniform property meaningfully descriptive across a wider range of the height field.</p>
+
+<h2>7. Notes on PBR Integration</h2>
+
+<p>FXPS is designed as an empirical technique for stylized and performance-constrained rendering, where it can serve as a simple multiplicative darkening factor applied to the final lighting. However, it can also be inserted into a physically based pipeline if desired. This section provides guidance for that use case, characterizing how FXPS interacts with the self-shadowing mechanisms already present in a standard PBR lighting equation.</p>
+
+<p>In a standard PBR direct lighting pipeline, the outgoing radiance at a surface point <strong>x</strong> with view direction <strong>v</strong> and light direction <strong>l</strong> is:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>L</em>_o(<strong>x</strong>, <strong>v</strong>) = <em>f</em>_r(<strong>l</strong>, <strong>v</strong>, <strong>n&prime;</strong>) &middot; <em>L</em>_i &middot; &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; &middot; <em>V</em>(<strong>x</strong>, <strong>l</strong>)</p>
+
+<p>where <em>f</em>_r is the BRDF, <em>L</em>_i is the incident radiance from the light, <strong>n&prime;</strong> is the perturbed (normal-mapped) surface normal, and <em>V</em> is a geometric visibility term. If FXPS is used within such a pipeline, it provides a replacement for <em>V</em>. The following subsections characterize how this interacts with the other self-shadowing mechanisms in the equation.</p>
+
+<h3>7.1 Multi-Scale Shadow Decomposition</h3>
+
+<p>A height-mapped PBR surface contains three distinct spatial scales of self-occlusion, each handled by a different term in the rendering equation:</p>
+
+<p><strong>Micro-scale: the Smith shadowing-masking function G(l, v, m).</strong> Inside the Cook-Torrance specular BRDF, the geometry term <em>G</em> models the statistical self-occlusion of sub-texel microfacets as a function of roughness and the half-vector. It operates at the scale of surface microgeometry (micrometers)&mdash;far below the resolution of any height map. The specular BRDF is typically written as:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>f</em>_spec = <em>D</em> &middot; <em>F</em> &middot; <em>G</em> / (4 &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; &langle;<strong>n&prime;</strong> &middot; <strong>v</strong>&rangle;)</p>
+
+<p>where <em>D</em> is the microfacet distribution (e.g. GGX), <em>F</em> is the Fresnel term, and <em>G</em> encodes the proportion of microfacets that are both visible to the camera and not shadowed from the light. This is a <em>statistical</em> self-shadowing model&mdash;it does not resolve individual occluders but rather models their aggregate effect on the lobe.</p>
+
+<p><strong>Meso-scale: the perturbed Lambertian term &langle;n&prime; &middot; l&rangle;.</strong> The clamped dot product between the normal-mapped normal <strong>n&prime;</strong> and the light direction <strong>l</strong> captures orientation-dependent darkening from surface detail encoded in the normal map. While not geometric shadowing in the strict sense, it approximates the visual effect of self-occlusion at the normal-map frequency (typically millimeter-scale surface undulations). Features that face away from the light are darkened; features facing the light receive full irradiance.</p>
+
+<p><strong>Macro-scale: the visibility term V(x, l).</strong> This is the geometric visibility between the shading point and the light, evaluated along the height field. In standard POM, this term is either absent (no self-shadowing), binary (hard shadow), or smoothed via multi-sample averaging. FXPS replaces it with a continuous, height-adaptive probe:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>V</em>_FXPS(<strong>x</strong>, <strong>l</strong>) = clamp(1 &minus; <em>N</em> &middot; max<sub><em>i</em></sub> (<em>H</em>_sample(<em>t</em>_<em>i</em>) &minus; <em>H</em>_ray(<em>t</em>_<em>i</em>)) / <em>i</em>, 0, 1)</p>
+
+<p>This term operates at the height-map texel scale (millimeters to centimeters)&mdash;the same frequency as the normal map, but capturing a fundamentally different phenomenon: whether a distant feature <em>occludes</em> the light, rather than whether the local surface <em>faces</em> it.</p>
+
+<h3>7.2 The Complete Reflectance Equation</h3>
+
+<p>Substituting the multi-scale terms, the full direct lighting equation for a single light becomes:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>L</em>_o = [<em>f</em>_spec + <em>f</em>_diff] &middot; <em>L</em>_i &middot; &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; &middot; <em>V</em>_FXPS</p>
+
+<p>where <em>f</em>_spec contains <em>G</em> internally and <em>f</em>_diff is the diffuse BRDF (e.g. Lambertian or Oren-Nayar). The three self-shadowing mechanisms enter multiplicatively: <em>G</em> modulates the specular lobe, &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; modulates the total irradiance via surface orientation, and <em>V</em>_FXPS modulates the incoming radiance via macro-scale geometric occlusion.</p>
+
+<p>The multiplicative decomposition is physically consistent because <em>V</em>_FXPS modulates <em>incoming radiance before it reaches the BRDF</em>. It is not a modification of the reflectance function itself, but of the light transport. The BRDF&rsquo;s internal <em>G</em> term then further attenuates based on microfacet statistics, operating on the already-modulated irradiance. This is consistent with the rendering equation&rsquo;s structure, where visibility and reflectance are separable.</p>
+
+<h3>7.3 Scale Separation and Double-Counting</h3>
+
+<p>The multiplicative composition of <em>G</em>, &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle;, and <em>V</em>_FXPS is physically justified when they operate at non-overlapping spatial frequencies. In practice, this assumption holds well:</p>
+
+<p>The Smith <em>G</em> function models sub-texel microgeometry at the scale of the roughness parameter (typically micrometers). POM height maps encode features at texel resolution (millimeters to centimeters). The frequency gap between these scales is typically three or more orders of magnitude, making overlap negligible.</p>
+
+<p>The meso-scale &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; term and the macro-scale <em>V</em>_FXPS term both operate at roughly the same spatial frequency (the height-map/normal-map texel), but they capture <em>orthogonal phenomena</em>. The dot product measures local surface orientation; <em>V</em>_FXPS measures non-local occlusion along the light ray. A surface patch can face the light (&langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; &asymp; 1) yet still be occluded by a distant ridge (<em>V</em>_FXPS &lt; 1), or face away from the light (&langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; &asymp; 0) while being geometrically unoccluded (<em>V</em>_FXPS = 1). Their product correctly captures both effects simultaneously.</p>
+
+<p>The one scenario where mild double-counting could arise is if the height map contains features at a scale comparable to the microfacet roughness. In such a case, both <em>G</em> and <em>V</em>_FXPS would attenuate for the same geometric cause. In practice, this is extremely unlikely in real-time rendering pipelines: height maps are authored at a resolution of hundreds of texels per meter, while roughness models sub-micron geometry. Nonetheless, artists should be aware that extremely rough materials (roughness &gt; 0.9) combined with very high-frequency height maps could in principle produce slightly over-darkened results.</p>
+
+<h3>7.4 Energy Conservation</h3>
+
+<p><em>V</em>_FXPS is bounded to [0, 1] and is purely attenuative&mdash;it can reduce incoming radiance but never amplify it. This guarantees that the technique cannot violate energy conservation. The total outgoing radiance at any fragment is always less than or equal to the radiance that would be computed without the visibility term. In the absence of any occluders, <em>V</em>_FXPS evaluates to exactly 1.0, reducing to the unshadowed case.</p>
+
+<p>Note that <em>V</em>_FXPS does not account for indirect illumination or interreflection within the height field. Light blocked by the visibility term is simply removed, not redistributed. In pipelines that include screen-space or probe-based global illumination, the ambient or indirect term should <em>not</em> be modulated by <em>V</em>_FXPS, as the indirect lighting has already been attenuated through its own visibility evaluation. The FXPS visibility term should be applied only to direct light contributions.</p>
+
+<h2>8. Implementation</h2>
+
+<p>The complete shadow function in GLSL, incorporating height-adaptive &alpha; and the scale-invariant normalization:</p>
+
+<pre><code>#define PARALLAX_SCALE 0.04
+#define PARALLAX_SHADOW_ITERATIONS 4
+#define ALPHA_MIN 0.5
+#define ALPHA_MAX 2.0
+
+float getParallaxShadow(sampler2D heightSampler,
+                        vec2 uv, vec3 lightDir)
+{
+    vec2 rayStep = vec2(lightDir.x, -lightDir.y)
+                 * PARALLAX_SCALE;
+    float heightStep = lightDir.z * PARALLAX_SCALE;
+
+    float surfaceHeight =
+        texture2D(heightSampler, uv).a;
+
+    // Height-adaptive exponent:
+    // valleys (h~0) -> low alpha -> far field
+    // peaks  (h~1) -> high alpha -> near field
+    float alpha = mix(ALPHA_MIN, ALPHA_MAX,
+                      surfaceHeight);
+
+    float shadow = 0.0;
+    int N = PARALLAX_SHADOW_ITERATIONS;
+
+    for (int i = 1; i &lt;= N; i++)
+    {
+        float t = pow(float(i) / float(N),
+                      alpha);
+        float rayHeight =
+            surfaceHeight + heightStep * t;
+        float sampleHeight =
+            texture2D(heightSampler,
+                      uv + rayStep * t).a;
+        shadow = max(shadow,
+                     (sampleHeight - rayHeight)
+                     / float(i));
+    }
+
+    return clamp(
+        1.0 - shadow * float(N), 0.0, 1.0);
+}</code></pre>
+
+<p>For completeness, the complementary parallax offset function used for view-direction displacement:</p>
+
+<pre><code>#define PARALLAX_OFFSET_ITERATIONS 4
+
+vec2 getParallaxOffset(sampler2D heightSampler,
+                       vec2 uv, vec3 eyeDir)
+{
+    vec2 viewOffset = vec2(eyeDir.x, -eyeDir.y)
+                    * PARALLAX_SCALE;
+    float currentHeight = 0.0;
+    vec2 currentOffset = vec2(0.0);
+
+    for (int i = 0;
+         i &lt; PARALLAX_OFFSET_ITERATIONS; i++)
+    {
+        float sampledHeight =
+            texture2D(heightSampler,
+                      uv + currentOffset).a;
+        float heightDiff =
+            (sampledHeight - 0.5)
+            - currentHeight;
+        float stepScale =
+            1.0 / float(i + 1);
+        currentOffset +=
+            viewOffset * heightDiff * stepScale;
+        currentHeight +=
+            heightDiff * stepScale;
+    }
+
+    return currentOffset;
+}</code></pre>
+
+<p>The shadow function requires exactly N texture fetches plus one for the surface height, identical to standard hard-shadow POM. The additional ALU cost is a single pow, a mix, and an integer division per iteration. No additional render targets, temporal accumulation, or stochastic sampling are required.</p>
+
+<h2>9. Limitations and Future Work</h2>
+
+<p>The height-adaptive parameterization assumes that surface height is a reasonable proxy for local shadow topology. This holds for typical terrain and material height fields, but may be less appropriate for height maps with unusual distributions&mdash;for example, a surface where high-elevation regions are surrounded by even higher occluders. In such cases, the proxy relationship between height and occluder distance breaks down.</p>
+
+<p>The linear interpolation mix(&alpha;_min, &alpha;_max, h) is the simplest possible mapping. A nonlinear remapping (e.g. smoothstep, or a power curve) may better fit specific height-field statistics. Similarly, the default bounds [0.5, 2.0] are empirically motivated; systematic characterization across a range of height-map types would strengthen these recommendations.</p>
+
+<p>At N = 2, the technique still produces usable results with subtle banding, but the probe has very limited spatial discrimination regardless of &alpha;. Performance profiling across GPU architectures, particularly regarding texture cache coherence of the non-linear sampling pattern, would clarify the practical cost-quality trade-off.</p>
+
+<p>Future work could investigate deriving &alpha; from local height-map statistics (variance, gradient magnitude) rather than height alone, or extending the 1/<em>i</em> invariant to non-power-law step functions with appropriately derived weights.</p>
+
+<h2>10. Conclusion</h2>
+
+<p>We have presented Fast Approximate Parallax Shadows (FXPS), a cheap empirical heuristic for self-shadowing height-mapped surfaces. FXPS does not aspire to physical accuracy; it is designed for the bottom of the cost spectrum&mdash;stylized rendering, mobile GPUs, legacy forward pipelines, and any context where visual plausibility at 2&ndash;4 texture fetches matters more than ground-truth visibility.</p>
+
+<p>The technique is built on three results: first, that combining any power-law step function t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup> with a 1/<em>i</em> weight produces a shadow probe with log-uniform effective sensitivity along the ray, providing a principled basis for the weighting choice; second, that the correct shadow strength normalization is simply N, making iteration count a pure quality knob independent of all other parameters; and third, that the surface height at each fragment provides a natural, zero-cost parameterization for &alpha;, adapting the probe distribution to the local geometry such that peaks prioritize contact shadow detection and valleys prioritize distant occluder coverage.</p>
+
+<p>Against the realistic baseline comparison&mdash;linear POM hard shadows, simple N&middot;L darkening, or no self-shadowing at all&mdash;FXPS offers a meaningful visual improvement for the same texture fetch budget. It requires no precomputed data, no temporal accumulation, and no parameter tuning beyond the optional &alpha; bounds. For pipelines that need self-shadowing to look good rather than be correct, it is a practical and effective tool.</p>
+
+<script>
+// ─── shared helpers ──────────────────────────────────────────────────────────
+
+const COLORS = {
+  a05: '#4878cf',   // blue
+  a10: '#3aaa35',   // green
+  a20: '#e08020',   // amber
+  a30: '#d63030',   // red
+};
+
+function drawAxes(ctx, lx, rx, by, ty, xmin, xmax, ymin, ymax,
+                  xticks, yticks, xlabel, ylabel, title) {
+  ctx.save();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+
+  // border
+  ctx.strokeRect(lx, ty, rx - lx, by - ty);
+
+  const xs = t => lx + (t - xmin) / (xmax - xmin) * (rx - lx);
+  const ys = v => by - (v - ymin) / (ymax - ymin) * (by - ty);
+
+  ctx.fillStyle = '#000';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+
+  // x ticks
+  for (const v of xticks) {
+    const x = xs(v);
+    ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by + 5); ctx.stroke();
+    ctx.fillText(v.toFixed(v === Math.round(v) ? 2 : 2), x, by + 16);
+    // grid
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x, by); ctx.stroke();
+    ctx.restore();
+  }
+  // x label
+  ctx.fillText(xlabel, (lx + rx) / 2, by + 30);
+
+  // y ticks
+  ctx.textAlign = 'right';
+  for (const v of yticks) {
+    const y = ys(v);
+    ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(lx - 5, y); ctx.stroke();
+    ctx.fillText(v % 1 === 0 ? v.toFixed(1) : v.toFixed(1), lx - 8, y + 4);
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(rx, y); ctx.stroke();
+    ctx.restore();
+  }
+
+  // y label (rotated)
+  ctx.save();
+  ctx.translate(lx - 40, (ty + by) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.fillText(ylabel, 0, 0);
+  ctx.restore();
+
+  // title
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText(title, (lx + rx) / 2, ty - 8);
+  ctx.restore();
+
+  return { xs, ys };
+}
+
+function plotCurve(ctx, xs, ys, fn, xmin, xmax, steps, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let first = true;
+  for (let k = 0; k <= steps; k++) {
+    const t = xmin + (xmax - xmin) * k / steps;
+    const v = fn(t);
+    if (!isFinite(v)) { first = true; continue; }
+    if (first) { ctx.moveTo(xs(t), ys(v)); first = false; }
+    else ctx.lineTo(xs(t), ys(v));
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function legend(ctx, x, y, items, fontSize) {
+  ctx.save();
+  ctx.font = (fontSize || 11) + 'px sans-serif';
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 0.5;
+  const lw = 20, pad = 6, lineH = 16;
+  const w = 155, h = items.length * lineH + pad * 2;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  items.forEach(([color, label], i) => {
+    const ly = y + pad + lineH * i + lineH / 2;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x + pad, ly); ctx.lineTo(x + pad + lw, ly); ctx.stroke();
+    ctx.fillStyle = '#000'; ctx.lineWidth = 1;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x + pad + lw + 5, ly + 4);
+  });
+  ctx.restore();
+}
+
+// ─── Figure 1 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig1');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // main title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+
+  const half = W / 2;
+
+  // LEFT PLOT: rho(t) = 1/(alpha*t)
+  const lx1 = 55, rx1 = half - 20;
+  const lx2 = half + 40, rx2 = W - 20;
+  const by = H - 40, ty = 30;
+  const xticks = [0.00, 0.25, 0.50, 0.75, 1.00];
+  const yticks1 = [0, 2, 4, 6, 8, 10, 12, 14];
+  const yticks2 = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
+
+  const {xs: xs1, ys: ys1} = drawAxes(ctx, lx1, rx1, by, ty,
+    0, 1, 0, 15, xticks, yticks1,
+    'Ray distance  t', 'ρ(t) = 1/(αt)', 'Effective Sensitivity');
+
+  const {xs: xs2, ys: ys2} = drawAxes(ctx, lx2, rx2, by, ty,
+    0, 1, 0, 3.0, xticks, yticks2,
+    'Ray distance  t', 'ρ(t)·t = 1/α', 'Sensitivity per Log-Decade');
+
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+
+  alphas.forEach((a, i) => {
+    // clip left plot to ymax=15
+    ctx.save();
+    ctx.rect(lx1, ty, rx1 - lx1, by - ty);
+    ctx.clip();
+    plotCurve(ctx, xs1, ys1, t => 1 / (a * t), 0.001, 1, 400, cols[i]);
+    ctx.restore();
+
+    // right plot: flat lines at 1/alpha
+    ctx.save();
+    ctx.strokeStyle = cols[i]; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xs2(0), ys2(1/a));
+    ctx.lineTo(xs2(1), ys2(1/a));
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  legend(ctx, lx1 + 5, ty + 5, [
+    [COLORS.a05, 'α = 0.5 (sqrt)'],
+    [COLORS.a10, 'α = 1.0 (linear)'],
+    [COLORS.a20, 'α = 2.0 (quadratic)'],
+    [COLORS.a30, 'α = 3.0 (cubic)'],
+  ]);
+
+  legend(ctx, lx2 + 5, ty + 5, [
+    [COLORS.a05, '1/α = 2.0'],
+    [COLORS.a10, '1/α = 1.0'],
+    [COLORS.a20, '1/α = 0.5'],
+    [COLORS.a30, '1/α = 0.3'],
+  ]);
+})();
+
+// ─── Figure 2 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig2');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  const lx = 65, rx = W - 20, by = H - 40, ty = 35;
+  const xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+  const yticks = [0, 2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5, 20.0];
+
+  const {xs, ys} = drawAxes(ctx, lx, rx, by, ty,
+    0, 1, 0, 20,
+    xticks, yticks,
+    'Ray distance  t',
+    'Relative weight  w(t) / w(1)',
+    'Distance-Attenuation Curves in Ray-Space');
+
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+
+  alphas.forEach((a, i) => {
+    // w(t) = t^(-1/a), w(1) = 1, so ratio = t^(-1/a)
+    ctx.save();
+    ctx.rect(lx, ty, rx - lx, by - ty);
+    ctx.clip();
+    plotCurve(ctx, xs, ys, t => Math.pow(t, -1/a), 0.002, 1, 500, cols[i]);
+    ctx.restore();
+  });
+
+  // annotations
+  ctx.save();
+  ctx.fillStyle = COLORS.a05;
+  ctx.font = 'italic 11px sans-serif';
+  ctx.fillText('Steep falloff', xs(0.08) + 65, ys(16));
+  ctx.fillText('(aggressive)', xs(0.08) + 65, ys(16) + 14);
+  ctx.fillStyle = COLORS.a20;
+  ctx.fillText('Gentle falloff', xs(0.07) + 5, ys(5.5));
+  ctx.restore();
+
+  legend(ctx, rx - 165, ty + 5, [
+    [COLORS.a05, 'α = 0.5 (sqrt)'],
+    [COLORS.a10, 'α = 1.0 (linear)'],
+    [COLORS.a20, 'α = 2.0 (quadratic)'],
+    [COLORS.a30, 'α = 3.0 (cubic)'],
+  ]);
+})();
+
+// ─── Figure 3 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig3');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  const N = 4;
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols   = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+  const names  = ['α = 0.5 (sqrt)', 'α = 1.0 (linear)', 'α = 2.0 (quadratic)', 'α = 3.0 (cubic)'];
+
+  const lx = 55, rx = W - 15;
+  const totalH = H - 10;
+  const panelH = totalH / 4;
+  const marginTop = 20, marginBot = 28;
+  const xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Sample Placement and Weights at N = 4', W / 2, 14);
+
+  alphas.forEach((a, pi) => {
+    const panelY = 18 + pi * panelH;
+    const ty = panelY + marginTop;
+    const by = panelY + panelH - marginBot;
+
+    const ymin = 0, ymax = 1.2;
+    const {xs, ys} = drawAxes(ctx, lx, rx, by, ty,
+      0, 1, ymin, ymax,
+      xticks, [0.0, 0.5, 1.0],
+      pi === 3 ? 'Ray distance  t' : '',
+      'Weight', '');
+
+    // unsampled region: from 0 to t_1
+    const t1 = Math.pow(1 / N, a);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,180,180,0.35)';
+    ctx.fillRect(xs(0), ty, xs(t1) - xs(0), by - ty);
+    ctx.restore();
+
+    // label "unsampled"
+    ctx.save();
+    ctx.fillStyle = '#c44';
+    ctx.font = 'italic 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('unsampled', xs(0.01), (ty + by) / 2 - 4);
+    ctx.restore();
+
+    // bars
+    for (let i = 1; i <= N; i++) {
+      const t = Math.pow(i / N, a);
+      const w = 1 / i;
+      const bw = (rx - lx) * 0.018;
+      const bx = xs(t) - bw / 2;
+      const bh = (by - ty) * w / (ymax - ymin);
+
+      ctx.save();
+      ctx.fillStyle = cols[pi];
+      ctx.fillRect(bx, by - bh, bw, bh);
+      ctx.restore();
+
+      // weight label
+      const label = i === 1 ? '1' : `1/${i}`;
+      ctx.save();
+      ctx.fillStyle = '#000';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, xs(t), by - bh - 4);
+      ctx.restore();
+    }
+
+    // alpha label (top right)
+    ctx.save();
+    ctx.fillStyle = cols[pi];
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(names[pi], rx - 4, ty + 14);
+    ctx.restore();
+  });
+})();
+
+// ─── Figure 4 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig4');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  const N = 4;
+  const panels = [
+    { h: 0.0, a: 0.5,  color: COLORS.a05, label: 'Valley  (h = 0.0, α = 0.5)' },
+    { h: 0.5, a: 1.25, color: COLORS.a10, label: 'Mid-elevation  (h = 0.5, α = 1.25)' },
+    { h: 1.0, a: 2.0,  color: COLORS.a20, label: 'Peak  (h = 1.0, α = 2.0)' },
+  ];
+
+  const lx = 55, rx = W - 15;
+  const titleH = 18;
+  const panelH = (H - titleH - 10) / 3;
+  const marginTop = 20, marginBot = 30;
+  const xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Height-Adaptive Probe Distribution at N = 4', W / 2, 14);
+
+  panels.forEach(({h, a, color, label}, pi) => {
+    const panelY = titleH + pi * panelH;
+    const ty = panelY + marginTop;
+    const by = panelY + panelH - marginBot;
+    const ymax = 1.2;
+
+    const {xs, ys} = drawAxes(ctx, lx, rx, by, ty,
+      0, 1, 0, ymax,
+      xticks, [0.0, 0.5, 1.0],
+      pi === 2 ? 'Ray distance  t' : '',
+      'w', '');
+
+    // unsampled region
+    const t1 = Math.pow(1 / N, a);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,180,180,0.35)';
+    ctx.fillRect(xs(0), ty, xs(t1) - xs(0), by - ty);
+    ctx.restore();
+
+    // bars
+    for (let i = 1; i <= N; i++) {
+      const t = Math.pow(i / N, a);
+      const w = 1 / i;
+      const bw = (rx - lx) * 0.018;
+      const bx = xs(t) - bw / 2;
+      const bh = (by - ty) * w / ymax;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, by - bh, bw, bh);
+      ctx.restore();
+    }
+
+    // label
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(label, rx - 4, ty + 14);
+    ctx.restore();
+  });
+})();
+</script>
+</body>
+</html>
