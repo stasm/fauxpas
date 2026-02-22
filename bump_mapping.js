@@ -642,12 +642,14 @@ function update_and_render() {
 
     {
         var scale = 0.01 * parseFloat(document.getElementById("scale").value);
+        document.getElementById("scale_val").textContent = scale.toFixed(2);
         var uni = gl.getUniformLocation(pgm, "depth_scale");
         gl.uniform1f(uni, scale);
     }
 
     {
         var steps = parseFloat(document.getElementById("steps").value);
+        document.getElementById("steps_val").textContent = steps;
         var uni = gl.getUniformLocation(pgm, "num_layers");
         gl.uniform1f(uni, steps);
     }
@@ -678,6 +680,7 @@ function update_and_render() {
 
     {
         var shadowSteps = parseFloat(document.getElementById("shadow_steps").value);
+        document.getElementById("shadow_steps_val").textContent = shadowSteps;
         var uni = gl.getUniformLocation(pgm, "shadow_steps");
         gl.uniform1f(uni, shadowSteps);
     }

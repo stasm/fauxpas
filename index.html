@@ -85,16 +85,19 @@
             <input type="checkbox" id="show_tex" checked/>Show diffuse texture<br/>
             <table>
                 <tr id="scale_control">
-                    <td>Parallax scale [0, 0.1]</td>
+                    <td>Parallax scale</td>
                     <td><input type="range" min="0" max="10" value="5" id="scale"/></td>
+                    <td><span id="scale_val">0.05</span></td>
                 </tr>
                 <tr id="step_control">
-                    <td>Number of steps [1, 32]</td>
+                    <td>Number of steps</td>
                     <td><input type="range" min="1" max="32" value="4" id="steps"/></td>
+                    <td><span id="steps_val">4</span></td>
                 </tr>
                 <tr id="shadow_step_control">
-                    <td>Shadow steps [1, 32]</td>
+                    <td>Shadow steps</td>
                     <td><input type="range" min="1" max="32" value="16" id="shadow_steps"/></td>
+                    <td><span id="shadow_steps_val">16</span></td>
                 </tr>
             </table>
         </p>
