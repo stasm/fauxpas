@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:apoorvaj.io)",
+      "Bash(curl:*)",
+      "Bash(wc:*)"
+    ]
+  }
+}
