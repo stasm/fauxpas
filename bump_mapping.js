@@ -68,6 +68,7 @@ uniform int type;
 uniform int shadow_type;
 uniform int show_tex;
 uniform float depth_scale;
+uniform float parallax_bias;
 uniform float num_layers;
 uniform float shadow_steps;
 
@@ -126,7 +127,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     for (int i = 0; i < 32; i++)
     {
         if (float(i) >= num_layers) break;
-        float sampledHeight = (texture(tex_depth, uv + ray.xy).r - 0.5) * depth_scale;
+        float sampledHeight = texture(tex_depth, uv + ray.xy).r * depth_scale - parallax_bias;
         float normalZ = texture(tex_norm, uv + ray.xy).b * 2.0 - 1.0;
         float heightDiff = sampledHeight - ray.z;
         ray += view * heightDiff * normalZ;
@@ -657,6 +658,9 @@ function update_and_render() {
             step.style.visibility = "visible";
         }
 
+        var biasCtrl = document.getElementById("bias_control");
+        biasCtrl.style.visibility = (type == 5) ? "visible" : "hidden";
+
         var step = document.getElementById("step_control");
         if (type < 3) {
             step.style.visibility = "hidden";
@@ -673,6 +677,13 @@ function update_and_render() {
         document.getElementById("scale_val").textContent = scale.toFixed(2);
         var uni = gl.getUniformLocation(pgm, "depth_scale");
         gl.uniform1f(uni, scale);
+    }
+
+    {
+        var bias = 0.01 * parseFloat(document.getElementById("bias").value);
+        document.getElementById("bias_val").textContent = bias.toFixed(2);
+        var uni = gl.getUniformLocation(pgm, "parallax_bias");
+        gl.uniform1f(uni, bias);
     }
 
     {
