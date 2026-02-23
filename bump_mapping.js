@@ -78,6 +78,7 @@ in vec3 ts_frag_pos;
 
 out vec4 fragColor;
 
+
 vec2 parallax_uv(vec2 uv, vec3 view_dir)
 {
     if (type == 2) {
@@ -119,22 +120,19 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
 
 vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
 {
-    vec2 viewOffset = -eyeDir.xy * depth_scale;
-
-    float currentHeight = 0.0;
-    vec2 currentOffset = vec2(0.0);
+    vec3 view = vec3(-eyeDir.xy, eyeDir.z);
+    vec3 ray = vec3(0.0);
 
     for (int i = 0; i < 32; i++)
     {
         if (float(i) >= num_layers) break;
-        float sampledHeight = texture(tex_depth, uv + currentOffset).r;
-        float heightDiff = (sampledHeight - 0.5) - currentHeight;
-        float stepScale = 1.0 / float(i + 1);
-        currentOffset += viewOffset * heightDiff * stepScale;
-        currentHeight += heightDiff * stepScale;
+        float sampledHeight = (texture(tex_depth, uv + ray.xy).r - 0.5) * depth_scale;
+        float normalZ = texture(tex_norm, uv + ray.xy).b * 2.0 - 1.0;
+        float heightDiff = sampledHeight - ray.z;
+        ray += view * heightDiff * normalZ;
     }
 
-    return currentOffset;
+    return ray.xy;
 }
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
@@ -425,7 +423,7 @@ function update_cost_labels() {
         'parallax':  '1 tex',
         'steep':     `\u2264${1 + N} tex`,   // early exit possible
         'pom':       `\u2264${N + 2} tex`,   // early exit + 1 extra for interpolation
-        'iterative': `${N} tex`,              // always runs full N
+        'iterative': '8 tex',                  // 4 iterations × (1 depth + 1 norm)
     };
 
     // Additional depth texture samples per shadow technique
