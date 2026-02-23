@@ -583,6 +583,25 @@ function initBumpMapping() {
     document.getElementById("steps").addEventListener("input", update_cost_labels);
     document.getElementById("shadow_steps").addEventListener("input", update_cost_labels);
     update_cost_labels();
+
+    function syncBiasAbsFromRatio() {
+        var scale = 0.01 * parseFloat(document.getElementById("scale").value);
+        var ratio = 0.01 * parseFloat(document.getElementById("bias_ratio").value);
+        var absVal = ratio * scale;
+        document.getElementById("bias").value = Math.round(Math.min(50, Math.max(0, absVal * 100)));
+    }
+
+    function syncBiasRatioFromAbs() {
+        var scale = 0.01 * parseFloat(document.getElementById("scale").value);
+        var absVal = 0.01 * parseFloat(document.getElementById("bias").value);
+        if (scale > 0.001) {
+            document.getElementById("bias_ratio").value = Math.round(Math.min(100, Math.max(0, (absVal / scale) * 100)));
+        }
+    }
+
+    document.getElementById("scale").addEventListener("input", syncBiasAbsFromRatio);
+    document.getElementById("bias_ratio").addEventListener("input", syncBiasAbsFromRatio);
+    document.getElementById("bias").addEventListener("input", syncBiasRatioFromAbs);
 }
 
 if (document.readyState === 'loading') {
@@ -658,7 +677,10 @@ function update_and_render() {
         }
 
         var biasCtrl = document.getElementById("bias_control");
-        biasCtrl.style.visibility = (type == 5) ? "visible" : "hidden";
+        var biasRatioCtrl = document.getElementById("bias_ratio_control");
+        var biasVis = (type == 5) ? "visible" : "hidden";
+        biasCtrl.style.visibility = biasVis;
+        biasRatioCtrl.style.visibility = biasVis;
 
         var step = document.getElementById("step_control");
         if (type < 3) {
@@ -683,6 +705,13 @@ function update_and_render() {
         document.getElementById("bias_val").textContent = bias.toFixed(2);
         var uni = gl.getUniformLocation(pgm, "parallax_bias");
         gl.uniform1f(uni, bias);
+    }
+
+    {
+        var scale = 0.01 * parseFloat(document.getElementById("scale").value);
+        var bias = 0.01 * parseFloat(document.getElementById("bias").value);
+        var ratio = (scale > 0.001) ? bias / scale : 0.0;
+        document.getElementById("bias_ratio_val").textContent = ratio.toFixed(2);
     }
 
     {
