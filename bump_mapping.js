@@ -411,6 +411,45 @@ void main(void)
 }
 `;
 
+// Estimates worst-case depth texture samples for each technique and updates
+// the cost labels next to each radio button. Bump mapping uses num_layers (steps
+// slider); fast approximate and relief mapping shadows use shadow_steps instead.
+function update_cost_labels() {
+    const N = parseFloat(document.getElementById("steps").value);
+    const S = parseFloat(document.getElementById("shadow_steps").value);
+
+    // Depth texture samples per parallax technique (excluding normal/diffuse lookups)
+    const shading_costs = {
+        'diffuse':   '0 tex',
+        'normal':    '0 tex',
+        'parallax':  '1 tex',
+        'steep':     `\u2264${1 + N} tex`,   // early exit possible
+        'pom':       `\u2264${N + 2} tex`,   // early exit + 1 extra for interpolation
+        'iterative': `${N} tex`,              // always runs full N
+    };
+
+    // Additional depth texture samples per shadow technique
+    const shadow_costs = {
+        'none':             '0 tex',
+        'hard':             `\u2264${1 + N} tex`,    // early exit on first occluder
+        'soft':             `${1 + N} tex`,           // no early exit
+        'iterative_shadow': `${1 + S} tex`,           // no early exit, uses shadow_steps
+        'contact':          `\u2264${1 + N} tex`,    // early exit on first occluder
+        'binary':           `\u2264${N + 10} tex`,   // linear ≤N + 8 bisect + 1 final
+        'cone':             `${1 + N} tex`,           // no early exit
+        'relief':           `\u2264${S + 7} tex`,    // linear ≤S + 5 bisect + 1 final, uses shadow_steps
+    };
+
+    for (const [val, cost] of Object.entries(shading_costs)) {
+        const el = document.getElementById(`cost_shading_${val}`);
+        if (el) el.textContent = `(${cost})`;
+    }
+    for (const [val, cost] of Object.entries(shadow_costs)) {
+        const el = document.getElementById(`cost_shadow_${val}`);
+        if (el) el.textContent = `(${cost})`;
+    }
+}
+
 function initBumpMapping() {
     canvas = document.getElementById("gl_canvas");
     canvas.onclick = function (e) {
@@ -541,6 +580,10 @@ function initBumpMapping() {
 
     time = 0;
     setInterval(update_and_render, 15);
+
+    document.getElementById("steps").addEventListener("input", update_cost_labels);
+    document.getElementById("shadow_steps").addEventListener("input", update_cost_labels);
+    update_cost_labels();
 }
 
 if (document.readyState === 'loading') {

@@ -51,6 +51,10 @@
             width: 200px;
             accent-color: #4ade80;
         }
+        .cost {
+            color: #666;
+            font-size: 0.8em;
+        }
     </style>
 </head>
 <body>
@@ -62,23 +66,24 @@
     <div class="controls">
         <div class="radio-columns">
             <p>
-                <input type="radio" name="shading_type" value="diffuse"/>No bump mapping<br/>
-                <input type="radio" name="shading_type" value="normal"/>Normal mapping<br/>
-                <input type="radio" name="shading_type" value="parallax"/>Parallax mapping<br/>
-                <input type="radio" name="shading_type" value="steep"/>Steep parallax mapping<br/>
-                <input type="radio" name="shading_type" value="pom"/>Parallax occlusion mapping<br/>
-                <input type="radio" name="shading_type" value="iterative" checked/>Iterative parallax mapping
+                Bump mapping:<br/>
+                <input type="radio" name="shading_type" value="diffuse"/>None <span class="cost" id="cost_shading_diffuse"></span><br/>
+                <input type="radio" name="shading_type" value="normal"/>Normal mapping <span class="cost" id="cost_shading_normal"></span><br/>
+                <input type="radio" name="shading_type" value="parallax"/>Parallax mapping <span class="cost" id="cost_shading_parallax"></span><br/>
+                <input type="radio" name="shading_type" value="steep"/>Steep parallax mapping <span class="cost" id="cost_shading_steep"></span><br/>
+                <input type="radio" name="shading_type" value="pom"/>Parallax occlusion mapping <span class="cost" id="cost_shading_pom"></span><br/>
+                <input type="radio" name="shading_type" value="iterative" checked/>Iterative parallax mapping <span class="cost" id="cost_shading_iterative"></span>
             </p>
             <p>
                 Self-shadows:<br/>
-                <input type="radio" name="shadow_type" value="none" checked/>None<br/>
-                <input type="radio" name="shadow_type" value="hard"/>Hard POM<br/>
-                <input type="radio" name="shadow_type" value="soft"/>Soft POM<br/>
-                <input type="radio" name="shadow_type" value="iterative_shadow"/>Fast approximate<br/>
-                <input type="radio" name="shadow_type" value="contact"/>Contact-hardening<br/>
-                <input type="radio" name="shadow_type" value="binary"/>Binary search<br/>
-                <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft<br/>
-                <input type="radio" name="shadow_type" value="relief"/>Relief mapping
+                <input type="radio" name="shadow_type" value="none" checked/>None <span class="cost" id="cost_shadow_none"></span><br/>
+                <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
+                <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
+                <input type="radio" name="shadow_type" value="iterative_shadow"/>Fast approximate <span class="cost" id="cost_shadow_iterative_shadow"></span><br/>
+                <input type="radio" name="shadow_type" value="contact"/>Contact-hardening <span class="cost" id="cost_shadow_contact"></span><br/>
+                <input type="radio" name="shadow_type" value="binary"/>Binary search <span class="cost" id="cost_shadow_binary"></span><br/>
+                <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft <span class="cost" id="cost_shadow_cone"></span><br/>
+                <input type="radio" name="shadow_type" value="relief"/>Relief mapping <span class="cost" id="cost_shadow_relief"></span>
             </p>
         </div>
         <p>
