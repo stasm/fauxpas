@@ -141,14 +141,14 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
 
     float rayDepth = surfaceDepth;
     vec2 cur_uv = uv;
 
     for (int i = 0; i < 32; i++) {
-        if (float(i) >= num_layers) break;
+        if (float(i) >= shadow_steps) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
         float sampleDepth = texDepth(cur_uv);
@@ -164,7 +164,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
 
     float rayDepth = surfaceDepth;
@@ -172,7 +172,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
     float maxOcclusion = 0.0;
 
     for (int i = 0; i < 32; i++) {
-        if (float(i) >= num_layers) break;
+        if (float(i) >= shadow_steps) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
         float sampleDepth = texDepth(cur_uv);
@@ -210,7 +210,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
     float penumbraScale = 0.5;
 
@@ -219,7 +219,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
     float shadow = 1.0;
 
     for (int i = 0; i < 32; i++) {
-        if (float(i) >= num_layers) break;
+        if (float(i) >= shadow_steps) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
         float sampleDepth = texDepth(cur_uv);
@@ -238,7 +238,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
 
     float rayDepth = surfaceDepth;
@@ -248,7 +248,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
 
     bool found = false;
     for (int i = 0; i < 32; i++) {
-        if (float(i) >= num_layers) break;
+        if (float(i) >= shadow_steps) break;
         prev_uv = cur_uv;
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
@@ -291,7 +291,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
-    float depthPerStep = surfaceDepth / num_layers;
+    float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
     float coneSlope = 0.5;
 
@@ -300,7 +300,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
     float minRatio = 1.0;
 
     for (int i = 1; i <= 32; i++) {
-        if (float(i) > num_layers) break;
+        if (float(i) > shadow_steps) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
         float sampleDepth = texDepth(cur_uv);
@@ -430,13 +430,13 @@ function update_cost_labels() {
     // Additional tex_norm samples per shadow technique
     const shadow_costs = {
         'none':             '0 tex',
-        'hard':             `\u2264${1 + N} tex`,    // early exit on first occluder
-        'soft':             `${1 + N} tex`,           // no early exit
-        'iterative_shadow': `${1 + S} tex`,           // no early exit, uses shadow_steps
-        'contact':          `\u2264${1 + N} tex`,    // early exit on first occluder
-        'binary':           `\u2264${N + 10} tex`,   // linear ≤N + 8 bisect + 1 final
-        'cone':             `${1 + N} tex`,           // no early exit
-        'relief':           `\u2264${S + 7} tex`,    // linear ≤S + 5 bisect + 1 final, uses shadow_steps
+        'hard':             `\u2264${1 + S} tex`,    // early exit on first occluder
+        'soft':             `${1 + S} tex`,           // no early exit
+        'iterative_shadow': `${1 + S} tex`,           // no early exit
+        'contact':          `\u2264${1 + S} tex`,    // early exit on first occluder
+        'binary':           `\u2264${S + 10} tex`,   // linear ≤S + 8 bisect + 1 final
+        'cone':             `${1 + S} tex`,           // no early exit
+        'relief':           `\u2264${S + 7} tex`,    // linear ≤S + 5 bisect + 1 final
     };
 
     for (const [val, cost] of Object.entries(shading_costs)) {
@@ -715,7 +715,7 @@ function update_and_render() {
         gl.uniform1i(uni, shadow);
 
         var shadowStepCtrl = document.getElementById("shadow_step_control");
-        shadowStepCtrl.style.visibility = (shadow == 3 || shadow == 7) ? "visible" : "hidden";
+        shadowStepCtrl.style.visibility = (shadow > 0) ? "visible" : "hidden";
     }
 
     {
