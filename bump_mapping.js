@@ -12,37 +12,22 @@ var num_indices;
 var tex_norm, tex_diffuse, tex_depth;
 var pgm;
 
-var vert_src = `
+var vert_src = `#version 300 es
 precision highp float;
 
-attribute vec3 vert_pos;
-attribute vec3 vert_tang;
-attribute vec3 vert_bitang;
-attribute vec2 vert_uv;
+in vec3 vert_pos;
+in vec3 vert_tang;
+in vec3 vert_bitang;
+in vec2 vert_uv;
 
 uniform mat4 model_mtx;
 uniform mat4 norm_mtx;
 uniform mat4 proj_mtx;
 
-varying vec2 frag_uv;
-varying vec3 ts_light_pos; // Tangent space values
-varying vec3 ts_view_pos;  //
-varying vec3 ts_frag_pos;  //
-
-mat3 transpose(in mat3 inMatrix)
-{
-    vec3 i0 = inMatrix[0];
-    vec3 i1 = inMatrix[1];
-    vec3 i2 = inMatrix[2];
-
-    mat3 outMatrix = mat3(
-        vec3(i0.x, i1.x, i2.x),
-        vec3(i0.y, i1.y, i2.y),
-        vec3(i0.z, i1.z, i2.z)
-    );
-
-    return outMatrix;
-}
+out vec2 frag_uv;
+out vec3 ts_light_pos; // Tangent space values
+out vec3 ts_view_pos;  //
+out vec3 ts_frag_pos;  //
 
 void main(void)
 {
@@ -65,7 +50,7 @@ void main(void)
 }
 `;
 
-var frag_src = `
+var frag_src = `#version 300 es
 precision highp float;
 
 uniform sampler2D tex_norm;
@@ -86,16 +71,18 @@ uniform float depth_scale;
 uniform float num_layers;
 uniform float shadow_steps;
 
-varying vec2 frag_uv;
-varying vec3 ts_light_pos;
-varying vec3 ts_view_pos;
-varying vec3 ts_frag_pos;
+in vec2 frag_uv;
+in vec3 ts_light_pos;
+in vec3 ts_view_pos;
+in vec3 ts_frag_pos;
+
+out vec4 fragColor;
 
 vec2 parallax_uv(vec2 uv, vec3 view_dir)
 {
     if (type == 2) {
         // Parallax mapping
-        float depth = texture2D(tex_depth, uv).r;
+        float depth = texture(tex_depth, uv).r;
         vec2 p = view_dir.xy * (depth * depth_scale) / view_dir.z;
         return uv - p;
     } else {
@@ -104,12 +91,12 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
         vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * num_layers);
         vec2 cur_uv = uv;
 
-        float depth_from_tex = texture2D(tex_depth, cur_uv).r;
+        float depth_from_tex = texture(tex_depth, cur_uv).r;
 
         for (int i = 0; i < 32; i++) {
             cur_layer_depth += layer_depth;
             cur_uv -= delta_uv;
-            depth_from_tex = texture2D(tex_depth, cur_uv).r;
+            depth_from_tex = texture(tex_depth, cur_uv).r;
             if (depth_from_tex < cur_layer_depth) {
                 break;
             }
@@ -122,7 +109,7 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
             // Parallax occlusion mapping
             vec2 prev_uv = cur_uv + delta_uv;
             float next = depth_from_tex - cur_layer_depth;
-            float prev = texture2D(tex_depth, prev_uv).r - cur_layer_depth
+            float prev = texture(tex_depth, prev_uv).r - cur_layer_depth
                          + layer_depth;
             float weight = next / (next - prev);
             return mix(cur_uv, prev_uv, weight);
@@ -140,7 +127,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     for (int i = 0; i < 32; i++)
     {
         if (float(i) >= num_layers) break;
-        float sampledHeight = texture2D(tex_depth, uv + currentOffset).r;
+        float sampledHeight = texture(tex_depth, uv + currentOffset).r;
         float heightDiff = (sampledHeight - 0.5) - currentHeight;
         float stepScale = 1.0 / float(i + 1);
         currentOffset += viewOffset * heightDiff * stepScale;
@@ -152,7 +139,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -165,7 +152,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         if (sampleDepth < rayDepth) {
             return 0.0;
         }
@@ -175,7 +162,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
 
 float pomSoftShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -189,7 +176,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         float occlusion = (rayDepth - sampleDepth) / (float(i + 1) * depthPerStep);
         maxOcclusion = max(maxOcclusion, occlusion);
     }
@@ -200,7 +187,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
     vec2 rayStep = lightDir.xy * depth_scale;
     float heightStep = lightDir.z * depth_scale;
-    float surfaceHeight = 1.0 - texture2D(tex_depth, uv).r;
+    float surfaceHeight = 1.0 - texture(tex_depth, uv).r;
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
     // peaks (h~1) -> high alpha (contact shadows)
@@ -211,7 +198,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
-        float sampleHeight = 1.0 - texture2D(tex_depth, uv + rayStep * t).r;
+        float sampleHeight = 1.0 - texture(tex_depth, uv + rayStep * t).r;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
@@ -221,7 +208,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 
 float contactHardeningShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -236,7 +223,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         if (sampleDepth < rayDepth) {
             float occluderDist = float(i + 1) * depthPerStep;
             float totalDist = surfaceDepth;
@@ -249,7 +236,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
 
 float binarySearchShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -267,7 +254,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -285,7 +272,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 8; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture2D(tex_depth, mid_uv).r;
+        float sampleDepth = texture(tex_depth, mid_uv).r;
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -295,14 +282,14 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         }
     }
 
-    float finalSample = texture2D(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float finalSample = texture(tex_depth, (lo_uv + hi_uv) * 0.5).r;
     float finalRay = (lo_depth + hi_depth) * 0.5;
     return finalSample < finalRay ? 0.0 : 1.0;
 }
 
 float coneTracedShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -317,7 +304,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
         if (float(i) > num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         float coneRadius = coneSlope * float(i) * depthPerStep;
         float penetration = rayDepth - sampleDepth;
         if (penetration > 0.0) {
@@ -331,7 +318,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
 
 float reliefMappingShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture2D(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_depth, uv).r;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
@@ -349,7 +336,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture2D(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_depth, cur_uv).r;
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -367,7 +354,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 5; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture2D(tex_depth, mid_uv).r;
+        float sampleDepth = texture(tex_depth, mid_uv).r;
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -378,7 +365,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     }
 
     float finalRay = (lo_depth + hi_depth) * 0.5;
-    float finalSample = texture2D(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float finalSample = texture(tex_depth, (lo_uv + hi_uv) * 0.5).r;
     float depthDiff = finalRay - finalSample;
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
@@ -396,7 +383,7 @@ void main(void)
         uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
     }
 
-    vec3 albedo = texture2D(tex_diffuse, uv).rgb;
+    vec3 albedo = texture(tex_diffuse, uv).rgb;
     if (show_tex == 0) { albedo = vec3(1,1,1); }
     vec3 ambient = 0.3 * albedo;
 
@@ -413,13 +400,13 @@ void main(void)
         // No bump mapping
         vec3 norm = vec3(0,0,1);
         float diffuse = max(dot(light_dir, norm), 0.0);
-        gl_FragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
+        fragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
 
     } else {
         // Normal mapping
-        vec3 norm = normalize(texture2D(tex_norm, uv).rgb * 2.0 - 1.0);
+        vec3 norm = normalize(texture(tex_norm, uv).rgb * 2.0 - 1.0);
         float diffuse = max(dot(light_dir, norm), 0.0);
-        gl_FragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
+        fragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
     }
 }
 `;
@@ -430,15 +417,15 @@ function initBumpMapping() {
         time_paused = !time_paused;
     }
 
-    // Init WebGL context
+    // Init WebGL 2 context
     {
         gl = null;
-        try { gl = canvas.getContext("webgl"); }
-        catch (e) { }
+        try { gl = canvas.getContext("webgl2"); }
+        catch (_) { }
     }
 
     if (!gl) {
-        alert("Unable to initialize WebGL. Your browser may not support it.");
+        alert("Unable to initialize WebGL 2. Your browser may not support it.");
         return;
     }
 
