@@ -186,7 +186,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
     vec2 rayStep = lightDir.xy * depth_scale;
     float heightStep = lightDir.z * depth_scale;
-    float surfaceHeight = 1.0 - texDepth(uv);
+    float surfaceHeight = texture(tex_norm, uv).a;
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
     // peaks (h~1) -> high alpha (contact shadows)
@@ -197,7 +197,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
-        float sampleHeight = 1.0 - texDepth(uv + rayStep * t);
+        float sampleHeight = texture(tex_norm, uv + rayStep * t).a;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
