@@ -9,7 +9,7 @@ var vbo_bitang, attr_bitang;
 var vbo_uv, attr_uv;
 var index_buffer;
 var num_indices;
-var tex_norm, tex_diffuse, tex_depth;
+var tex_norm, tex_diffuse;
 var pgm;
 
 var vert_src = `#version 300 es
@@ -55,7 +55,6 @@ precision highp float;
 
 uniform sampler2D tex_norm;
 uniform sampler2D tex_diffuse;
-uniform sampler2D tex_depth;
 /*
     The type is controlled by the radio buttons below the canvas.
     0 = No bump mapping
@@ -84,7 +83,7 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
 {
     if (type == 2) {
         // Parallax mapping
-        float depth = texture(tex_depth, uv).r;
+        float depth = texture(tex_norm, uv).a;
         vec2 p = view_dir.xy * (depth * depth_scale) / view_dir.z;
         return uv - p;
     } else {
@@ -93,12 +92,12 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
         vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * num_layers);
         vec2 cur_uv = uv;
 
-        float depth_from_tex = texture(tex_depth, cur_uv).r;
+        float depth_from_tex = texture(tex_norm, cur_uv).a;
 
         for (int i = 0; i < 32; i++) {
             cur_layer_depth += layer_depth;
             cur_uv -= delta_uv;
-            depth_from_tex = texture(tex_depth, cur_uv).r;
+            depth_from_tex = texture(tex_norm, cur_uv).a;
             if (depth_from_tex < cur_layer_depth) {
                 break;
             }
@@ -111,7 +110,7 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
             // Parallax occlusion mapping
             vec2 prev_uv = cur_uv + delta_uv;
             float next = depth_from_tex - cur_layer_depth;
-            float prev = texture(tex_depth, prev_uv).r - cur_layer_depth
+            float prev = texture(tex_norm, prev_uv).a - cur_layer_depth
                          + layer_depth;
             float weight = next / (next - prev);
             return mix(cur_uv, prev_uv, weight);
@@ -127,8 +126,9 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     for (int i = 0; i < 32; i++)
     {
         if (float(i) >= num_layers) break;
-        float sampledHeight = texture(tex_depth, uv + ray.xy).r * depth_scale - parallax_bias;
-        float normalZ = texture(tex_norm, uv + ray.xy).b * 2.0 - 1.0;
+        vec4 texSample = texture(tex_norm, uv + ray.xy);
+        float sampledHeight = texSample.a * depth_scale - parallax_bias;
+        float normalZ = texSample.b * 2.0 - 1.0;
         float heightDiff = sampledHeight - ray.z;
         ray += view * heightDiff * normalZ;
     }
@@ -138,7 +138,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -151,7 +151,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         if (sampleDepth < rayDepth) {
             return 0.0;
         }
@@ -161,7 +161,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
 
 float pomSoftShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -175,7 +175,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         float occlusion = (rayDepth - sampleDepth) / (float(i + 1) * depthPerStep);
         maxOcclusion = max(maxOcclusion, occlusion);
     }
@@ -186,7 +186,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
     vec2 rayStep = lightDir.xy * depth_scale;
     float heightStep = lightDir.z * depth_scale;
-    float surfaceHeight = 1.0 - texture(tex_depth, uv).r;
+    float surfaceHeight = 1.0 - texture(tex_norm, uv).a;
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
     // peaks (h~1) -> high alpha (contact shadows)
@@ -197,7 +197,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
-        float sampleHeight = 1.0 - texture(tex_depth, uv + rayStep * t).r;
+        float sampleHeight = 1.0 - texture(tex_norm, uv + rayStep * t).a;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
@@ -207,7 +207,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 
 float contactHardeningShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -222,7 +222,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         if (sampleDepth < rayDepth) {
             float occluderDist = float(i + 1) * depthPerStep;
             float totalDist = surfaceDepth;
@@ -235,7 +235,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
 
 float binarySearchShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -253,7 +253,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -271,7 +271,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 8; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture(tex_depth, mid_uv).r;
+        float sampleDepth = texture(tex_norm, mid_uv).a;
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -281,14 +281,14 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         }
     }
 
-    float finalSample = texture(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float finalSample = texture(tex_norm, (lo_uv + hi_uv) * 0.5).a;
     float finalRay = (lo_depth + hi_depth) * 0.5;
     return finalSample < finalRay ? 0.0 : 1.0;
 }
 
 float coneTracedShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -303,7 +303,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
         if (float(i) > num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         float coneRadius = coneSlope * float(i) * depthPerStep;
         float penetration = rayDepth - sampleDepth;
         if (penetration > 0.0) {
@@ -317,7 +317,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
 
 float reliefMappingShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_depth, uv).r;
+    float surfaceDepth = texture(tex_norm, uv).a;
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
@@ -335,7 +335,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_depth, cur_uv).r;
+        float sampleDepth = texture(tex_norm, cur_uv).a;
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -353,7 +353,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 5; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture(tex_depth, mid_uv).r;
+        float sampleDepth = texture(tex_norm, mid_uv).a;
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -364,7 +364,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     }
 
     float finalRay = (lo_depth + hi_depth) * 0.5;
-    float finalSample = texture(tex_depth, (lo_uv + hi_uv) * 0.5).r;
+    float finalSample = texture(tex_norm, (lo_uv + hi_uv) * 0.5).a;
     float depthDiff = finalRay - finalSample;
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
@@ -417,17 +417,17 @@ function update_cost_labels() {
     const N = parseFloat(document.getElementById("steps").value);
     const S = parseFloat(document.getElementById("shadow_steps").value);
 
-    // Depth texture samples per parallax technique (excluding normal/diffuse lookups)
+    // tex_norm samples per parallax technique (depth in .a, normal in .rgb; excludes final shading lookup)
     const shading_costs = {
         'diffuse':   '0 tex',
         'normal':    '0 tex',
         'parallax':  '1 tex',
         'steep':     `\u2264${1 + N} tex`,   // early exit possible
         'pom':       `\u2264${N + 2} tex`,   // early exit + 1 extra for interpolation
-        'iterative': '8 tex',                  // 4 iterations × (1 depth + 1 norm)
+        'iterative': `${N} tex`,               // N iterations × 1 fetch (depth in .a, normalZ in .b)
     };
 
-    // Additional depth texture samples per shadow technique
+    // Additional tex_norm samples per shadow technique
     const shadow_costs = {
         'none':             '0 tex',
         'hard':             `\u2264${1 + N} tex`,    // early exit on first occluder
@@ -574,7 +574,6 @@ function initBumpMapping() {
     {
         tex_norm = load_texture("bump_normal.png");
         tex_diffuse = load_texture("bump_diffuse.png");
-        tex_depth = load_texture("bump_depth.png");
     }
 
     time = 0;
@@ -634,12 +633,6 @@ function update_and_render() {
         gl.uniform1i(uni, 1);
     }
 
-    {
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, tex_depth);
-        var uni = gl.getUniformLocation(pgm, "tex_depth");
-        gl.uniform1i(uni, 2);
-    }
 
     {
         var type = 0;
