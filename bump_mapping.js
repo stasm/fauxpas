@@ -62,6 +62,8 @@ uniform sampler2D tex_diffuse;
     2 = Parallax mapping
     3 = Steep parallax mapping
     4 = Parallax occlusion mapping
+    5 = Iterative parallax mapping
+    6 = Iterative parallax mapping (fixed)
 */
 uniform int type;
 uniform int shadow_type;
@@ -131,6 +133,24 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
         float normalZ = texSample.b * 2.0 - 1.0;
         float heightDiff = sampledHeight - ray.z;
         ray += eyeDir * heightDiff * normalZ;
+    }
+
+    return ray.xy;
+}
+
+vec2 getParallaxOffsetFixed(vec2 uv, vec3 eyeDir)
+{
+    vec3 view = vec3(-eyeDir.xy, eyeDir.z);
+    vec3 ray = vec3(0.0);
+
+    for (int i = 0; i < 32; i++)
+    {
+        if (float(i) >= num_layers) break;
+        vec4 texSample = texture(tex_norm, uv + ray.xy);
+        float sampledHeight = (1.0 - texSample.a) * depth_scale - parallax_bias;
+        float normalZ = texSample.b * 2.0 - 1.0;
+        float heightDiff = sampledHeight - ray.z;
+        ray += view * heightDiff * normalZ;
     }
 
     return ray.xy;
@@ -378,6 +398,8 @@ void main(void)
     vec2 uv;
     if (type == 5) {
         uv = frag_uv + getParallaxOffset(frag_uv, view_dir);
+    } else if (type == 6) {
+        uv = frag_uv + getParallaxOffsetFixed(frag_uv, view_dir);
     } else {
         uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
     }
@@ -424,7 +446,8 @@ function update_cost_labels() {
         'parallax':  '1 tex',
         'steep':     `\u2264${1 + N} tex`,   // early exit possible
         'pom':       `\u2264${N + 2} tex`,   // early exit + 1 extra for interpolation
-        'iterative': `${N} tex`,               // N iterations × 1 fetch (depth in .a, normalZ in .b)
+        'iterative':       `${N} tex`,           // N iterations × 1 fetch (depth in .a, normalZ in .b)
+        'iterative_fixed': `${N} tex`,           // same cost, corrected depth convention + view dir
     };
 
     // Additional tex_norm samples per shadow technique
@@ -649,6 +672,7 @@ function update_and_render() {
             case "steep": type = 3; break;
             case "pom": type = 4; break;
             case "iterative": type = 5; break;
+            case "iterative_fixed": type = 6; break;
         }
 
         var step = document.getElementById("scale_control");
@@ -659,7 +683,7 @@ function update_and_render() {
         }
 
         var biasRatioCtrl = document.getElementById("bias_ratio_control");
-        biasRatioCtrl.style.visibility = (type == 5) ? "visible" : "hidden";
+        biasRatioCtrl.style.visibility = (type == 5 || type == 6) ? "visible" : "hidden";
 
         var step = document.getElementById("step_control");
         if (type < 3) {
