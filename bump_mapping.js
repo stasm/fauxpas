@@ -9,7 +9,7 @@ var vbo_bitang, attr_bitang;
 var vbo_uv, attr_uv;
 var index_buffer;
 var num_indices;
-var tex_norm, tex_diffuse;
+var tex_sets;
 var pgm;
 
 var vert_src = `#version 300 es
@@ -78,12 +78,13 @@ in vec3 ts_frag_pos;
 
 out vec4 fragColor;
 
+float texDepth(vec2 uv) { return 1.0 - texture(tex_norm, uv).a; }
 
 vec2 parallax_uv(vec2 uv, vec3 view_dir)
 {
     if (type == 2) {
         // Parallax mapping
-        float depth = texture(tex_norm, uv).a;
+        float depth = texDepth(uv);
         vec2 p = view_dir.xy * (depth * depth_scale) / view_dir.z;
         return uv - p;
     } else {
@@ -92,12 +93,12 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
         vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * num_layers);
         vec2 cur_uv = uv;
 
-        float depth_from_tex = texture(tex_norm, cur_uv).a;
+        float depth_from_tex = texDepth(cur_uv);
 
         for (int i = 0; i < 32; i++) {
             cur_layer_depth += layer_depth;
             cur_uv -= delta_uv;
-            depth_from_tex = texture(tex_norm, cur_uv).a;
+            depth_from_tex = texDepth(cur_uv);
             if (depth_from_tex < cur_layer_depth) {
                 break;
             }
@@ -110,7 +111,7 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
             // Parallax occlusion mapping
             vec2 prev_uv = cur_uv + delta_uv;
             float next = depth_from_tex - cur_layer_depth;
-            float prev = texture(tex_norm, prev_uv).a - cur_layer_depth
+            float prev = texDepth(prev_uv) - cur_layer_depth
                          + layer_depth;
             float weight = next / (next - prev);
             return mix(cur_uv, prev_uv, weight);
@@ -120,7 +121,6 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
 
 vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
 {
-    vec3 view = vec3(-eyeDir.xy, eyeDir.z);
     vec3 ray = vec3(0.0);
 
     for (int i = 0; i < 32; i++)
@@ -130,7 +130,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
         float sampledHeight = texSample.a * depth_scale - parallax_bias;
         float normalZ = texSample.b * 2.0 - 1.0;
         float heightDiff = sampledHeight - ray.z;
-        ray += view * heightDiff * normalZ;
+        ray += eyeDir * heightDiff * normalZ;
     }
 
     return ray.xy;
@@ -138,7 +138,7 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -151,7 +151,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         if (sampleDepth < rayDepth) {
             return 0.0;
         }
@@ -161,7 +161,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
 
 float pomSoftShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -175,7 +175,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         float occlusion = (rayDepth - sampleDepth) / (float(i + 1) * depthPerStep);
         maxOcclusion = max(maxOcclusion, occlusion);
     }
@@ -186,7 +186,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
     vec2 rayStep = lightDir.xy * depth_scale;
     float heightStep = lightDir.z * depth_scale;
-    float surfaceHeight = 1.0 - texture(tex_norm, uv).a;
+    float surfaceHeight = 1.0 - texDepth(uv);
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
     // peaks (h~1) -> high alpha (contact shadows)
@@ -197,7 +197,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, alpha);
         float rayHeight = surfaceHeight + heightStep * t;
-        float sampleHeight = 1.0 - texture(tex_norm, uv + rayStep * t).a;
+        float sampleHeight = 1.0 - texDepth(uv + rayStep * t);
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
@@ -207,7 +207,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 
 float contactHardeningShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -222,7 +222,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
         if (float(i) >= num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         if (sampleDepth < rayDepth) {
             float occluderDist = float(i + 1) * depthPerStep;
             float totalDist = surfaceDepth;
@@ -235,7 +235,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
 
 float binarySearchShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -253,7 +253,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -271,7 +271,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 8; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture(tex_norm, mid_uv).a;
+        float sampleDepth = texDepth(mid_uv);
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -281,14 +281,14 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
         }
     }
 
-    float finalSample = texture(tex_norm, (lo_uv + hi_uv) * 0.5).a;
+    float finalSample = texDepth((lo_uv + hi_uv) * 0.5);
     float finalRay = (lo_depth + hi_depth) * 0.5;
     return finalSample < finalRay ? 0.0 : 1.0;
 }
 
 float coneTracedShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / num_layers;
@@ -303,7 +303,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
         if (float(i) > num_layers) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         float coneRadius = coneSlope * float(i) * depthPerStep;
         float penetration = rayDepth - sampleDepth;
         if (penetration > 0.0) {
@@ -317,7 +317,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
 
 float reliefMappingShadow(vec2 uv, vec3 lightDir)
 {
-    float surfaceDepth = texture(tex_norm, uv).a;
+    float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
@@ -335,7 +335,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
         prevRayDepth = rayDepth;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
-        float sampleDepth = texture(tex_norm, cur_uv).a;
+        float sampleDepth = texDepth(cur_uv);
         if (sampleDepth < rayDepth) {
             found = true;
             break;
@@ -353,7 +353,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     for (int i = 0; i < 5; i++) {
         vec2 mid_uv = (lo_uv + hi_uv) * 0.5;
         float mid_depth = (lo_depth + hi_depth) * 0.5;
-        float sampleDepth = texture(tex_norm, mid_uv).a;
+        float sampleDepth = texDepth(mid_uv);
         if (sampleDepth < mid_depth) {
             hi_uv = mid_uv;
             hi_depth = mid_depth;
@@ -364,7 +364,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     }
 
     float finalRay = (lo_depth + hi_depth) * 0.5;
-    float finalSample = texture(tex_norm, (lo_uv + hi_uv) * 0.5).a;
+    float finalSample = texDepth((lo_uv + hi_uv) * 0.5);
     float depthDiff = finalRay - finalSample;
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
@@ -571,10 +571,11 @@ function initBumpMapping() {
     }
 
     // Init textures
-    {
-        tex_norm = load_texture("bump_normal.png");
-        tex_diffuse = load_texture("bump_diffuse.png");
-    }
+    tex_sets = [
+        { norm: load_texture("bump_normal.png"),   diffuse: load_texture("bump_diffuse.png") },
+        { norm: load_texture("bricks_normal.png"), diffuse: load_texture("bricks_diffuse.png") },
+        { norm: load_texture("rocks_normal.png"),  diffuse: load_texture("rocks_difuse.png") },
+    ];
 
     time = 0;
     setInterval(update_and_render, 15);
@@ -620,16 +621,21 @@ function update_and_render() {
     }
 
     {
+        var set_idx = 0;
+        switch (document.querySelector('input[name="tex_set"]:checked').value) {
+            case "bricks": set_idx = 1; break;
+            case "rocks":  set_idx = 2; break;
+        }
+        var set = tex_sets[set_idx];
+
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, tex_norm);
+        gl.bindTexture(gl.TEXTURE_2D, set.norm);
         var uni = gl.getUniformLocation(pgm, "tex_norm");
         gl.uniform1i(uni, 0);
-    }
 
-    {
         gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, tex_diffuse);
-        var uni = gl.getUniformLocation(pgm, "tex_diffuse");
+        gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
+        uni = gl.getUniformLocation(pgm, "tex_diffuse");
         gl.uniform1i(uni, 1);
     }
 
