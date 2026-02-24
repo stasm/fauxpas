@@ -186,8 +186,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
 
 float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
-    vec2 rayStep = lightDir.xy * depth_scale;
-    float heightStep = lightDir.z * depth_scale;
+    vec3 step = lightDir * depth_scale;
     float surfaceHeight = texture(tex_norm, uv).a;
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
@@ -198,8 +197,8 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
     for (int i = 1; i <= 32; i++) {
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, alpha);
-        float rayHeight = surfaceHeight + heightStep * t;
-        float sampleHeight = texture(tex_norm, uv + rayStep * t).a;
+        float rayHeight = surfaceHeight + step.z * t;
+        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 

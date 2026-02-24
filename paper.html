@@ -254,7 +254,6 @@
 
 vec2 getParallaxOffset(sampler2D heightSampler, vec2 uv, vec3 eyeDir)
 {
-    vec3 view = vec3(eyeDir.x, -eyeDir.y, eyeDir.z);
     vec3 ray = vec3(0.0);
 
     for (int i = 0; i &lt; PARALLAX_OFFSET_ITERATIONS; i++)
@@ -264,7 +263,7 @@ vec2 getParallaxOffset(sampler2D heightSampler, vec2 uv, vec3 eyeDir)
         // Convergence driver: steps shrink as ray approaches the surface.
         float heightDiff = sampledHeight - ray.z;
         // Scale step by the surface normal's Z to attenuate on steep slopes.
-        ray += view * heightDiff * texSample.z;
+        ray += eyeDir * heightDiff * texSample.z;
     }
 
     return ray.xy;
@@ -272,7 +271,7 @@ vec2 getParallaxOffset(sampler2D heightSampler, vec2 uv, vec3 eyeDir)
 
 float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
 {
-    vec3 step = vec3(lightDir.x, -lightDir.y, lightDir.z) * PARALLAX_SCALE;
+    vec3 step = lightDir * PARALLAX_SCALE;
     float surfaceHeight = texture2D(heightSampler, uv).a;
 
     // Height-adaptive power-law exponent: valleys (low h) probe far for
