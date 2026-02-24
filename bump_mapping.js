@@ -2,6 +2,7 @@ var canvas;
 var gl;
 var time_paused = false;
 var time;
+var frame_time_avg = 0;
 
 var vbo_pos, attr_pos;
 var vbo_tang, attr_tang;
@@ -739,7 +740,47 @@ function update_and_render() {
     gl.vertexAttribPointer(attr_uv, 2, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
+
+    var t0 = performance.now();
     gl.drawElements(gl.TRIANGLES, num_indices, gl.UNSIGNED_SHORT, 0);
+    gl.finish();
+    var frame_ms = performance.now() - t0;
+    frame_time_avg = frame_time_avg === 0 ? frame_ms : frame_time_avg * 0.95 + frame_ms * 0.05;
+
+    // Estimate texture samples per fragment
+    var N = parseFloat(document.getElementById("steps").value);
+    var S = parseFloat(document.getElementById("shadow_steps").value);
+    var shading_val = document.querySelector('input[name="shading_type"]:checked').value;
+    var shadow_val = document.querySelector('input[name="shadow_type"]:checked').value;
+
+    var parallax_samples = 0;
+    switch (shading_val) {
+        case "diffuse":   parallax_samples = 0; break;
+        case "normal":    parallax_samples = 0; break;
+        case "parallax":  parallax_samples = 1; break;
+        case "steep":     parallax_samples = N; break;
+        case "pom":       parallax_samples = N + 1; break;
+        case "iterative": parallax_samples = N; break;
+    }
+
+    var shadow_samples = 0;
+    switch (shadow_val) {
+        case "none":             shadow_samples = 0; break;
+        case "hard":             shadow_samples = 1 + S; break;
+        case "soft":             shadow_samples = 1 + S; break;
+        case "iterative_shadow": shadow_samples = 1 + S; break;
+        case "contact":          shadow_samples = 1 + S; break;
+        case "binary":           shadow_samples = S + 10; break;
+        case "cone":             shadow_samples = 1 + S; break;
+        case "relief":           shadow_samples = S + 7; break;
+    }
+
+    var total_samples = parallax_samples + shadow_samples;
+    var overlay = document.getElementById("stats_overlay");
+    var time_str = frame_time_avg < 1
+        ? (frame_time_avg * 1000).toFixed(0) + " \u00B5s"
+        : frame_time_avg.toFixed(2) + " ms";
+    overlay.textContent = time_str + " | ~" + total_samples + " tex/frag";
 }
 
 function get_shader(gl, src, is_frag) {

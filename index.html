@@ -65,7 +65,10 @@
 <div class="content">
     <h1>Exploring Bump Mapping with WebGL</h1>
 
-    <canvas id="gl_canvas" width="1080" height="607"></canvas>
+    <div style="position: relative; display: inline-block; width: 100%;">
+        <canvas id="gl_canvas" width="1080" height="607"></canvas>
+        <div id="stats_overlay" style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.55);color:#fff;font:12px/1.4 monospace;padding:4px 8px;border-radius:3px;pointer-events:none;"></div>
+    </div>
 
     <div class="controls-grid">
         <div class="control-column">
