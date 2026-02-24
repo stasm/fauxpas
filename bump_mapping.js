@@ -136,6 +136,24 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     return ray.xy;
 }
 
+vec2 getParallaxOffsetHarmonic(vec2 uv, vec3 eyeDir)
+{
+    float currentHeight = 0.0;
+    vec2 currentOffset = vec2(0.0);
+
+    for (int i = 0; i < 32; i++)
+    {
+        if (float(i) >= num_layers) break;
+        float sampledHeight = texture(tex_norm, uv + currentOffset).a * depth_scale - parallax_bias;
+        float heightDiff = sampledHeight - currentHeight;
+        float stepScale = 1.0 / float(i + 1);
+        currentOffset += eyeDir.xy * heightDiff * stepScale;
+        currentHeight += heightDiff * stepScale;
+    }
+
+    return currentOffset;
+}
+
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
 {
@@ -379,6 +397,8 @@ void main(void)
     vec2 uv;
     if (type == 5) {
         uv = frag_uv + getParallaxOffset(frag_uv, view_dir);
+    } else if (type == 6) {
+        uv = frag_uv + getParallaxOffsetHarmonic(frag_uv, view_dir);
     } else {
         uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
     }
@@ -650,6 +670,7 @@ function update_and_render() {
             case "steep": type = 3; break;
             case "pom": type = 4; break;
             case "iterative": type = 5; break;
+            case "iterative_harmonic": type = 6; break;
         }
 
         var step = document.getElementById("scale_control");
@@ -660,7 +681,7 @@ function update_and_render() {
         }
 
         var biasRatioCtrl = document.getElementById("bias_ratio_control");
-        biasRatioCtrl.style.visibility = (type == 5) ? "visible" : "hidden";
+        biasRatioCtrl.style.visibility = (type == 5 || type == 6) ? "visible" : "hidden";
 
         var step = document.getElementById("step_control");
         if (type < 3) {
