@@ -116,6 +116,7 @@
                 <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
                 <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
                 <input type="radio" name="shadow_type" value="fxps" checked/>Fast approximate <span class="cost" id="cost_shadow_fxps"></span><br/>
+                <input type="radio" name="shadow_type" value="fxps_fixed"/>Fast approx. (fixed &alpha;) <span class="cost" id="cost_shadow_fxps_fixed"></span><br/>
                 <input type="radio" name="shadow_type" value="contact"/>Contact-hardening <span class="cost" id="cost_shadow_contact"></span><br/>
                 <input type="radio" name="shadow_type" value="binary"/>Binary search <span class="cost" id="cost_shadow_binary"></span><br/>
                 <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft <span class="cost" id="cost_shadow_cone"></span><br/>
@@ -126,6 +127,11 @@
                     <td>Steps</td>
                     <td><input type="range" min="1" max="32" value="3" id="shadow_steps"/></td>
                     <td><span id="shadow_steps_val">3</span></td>
+                </tr>
+                <tr id="fxps_alpha_control">
+                    <td>&alpha;</td>
+                    <td><input type="range" min="0.5" max="3" step="0.1" value="1.0" id="fxps_alpha"/></td>
+                    <td><span id="fxps_alpha_val">1.0</span></td>
                 </tr>
             </table>
         </div>

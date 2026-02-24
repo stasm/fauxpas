@@ -72,6 +72,7 @@ uniform float depth_scale;
 uniform float parallax_bias;
 uniform float num_layers;
 uniform float shadow_steps;
+uniform float fxps_alpha;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
@@ -203,6 +204,23 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
     }
 
     // Scale-invariant normalization: strength = N makes sample count a pure quality knob
+    return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
+}
+
+float fastApproximateShadowFixed(vec2 uv, vec3 lightDir)
+{
+    vec3 step = lightDir * depth_scale;
+    float surfaceHeight = texture(tex_norm, uv).a;
+
+    float shadow = 0.0;
+    for (int i = 1; i <= 32; i++) {
+        if (float(i) > shadow_steps) break;
+        float t = pow(float(i) / shadow_steps, fxps_alpha);
+        float rayHeight = surfaceHeight + step.z * t;
+        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
+        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
+    }
+
     return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
 }
 
@@ -395,6 +413,7 @@ void main(void)
     else if (shadow_type == 5) shadow = binarySearchShadow(uv, light_dir);
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
+    else if (shadow_type == 8) shadow = fastApproximateShadowFixed(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping
@@ -434,6 +453,7 @@ function update_cost_labels() {
         'hard':             `\u2264${1 + S} tex`,    // early exit on first occluder
         'soft':             `${1 + S} tex`,           // no early exit
         'fxps':             `${1 + S} tex`,           // no early exit
+        'fxps_fixed':       `${1 + S} tex`,           // no early exit
         'contact':          `\u2264${1 + S} tex`,    // early exit on first occluder
         'binary':           `\u2264${S + 10} tex`,   // linear ≤S + 8 bisect + 1 final
         'cone':             `${1 + S} tex`,           // no early exit
@@ -710,13 +730,17 @@ function update_and_render() {
             case "contact": shadow = 4; break;
             case "binary": shadow = 5; break;
             case "cone": shadow = 6; break;
-            case "relief": shadow = 7; break;
+            case "relief":     shadow = 7; break;
+            case "fxps_fixed": shadow = 8; break;
         }
         var uni = gl.getUniformLocation(pgm, "shadow_type");
         gl.uniform1i(uni, shadow);
 
         var shadowStepCtrl = document.getElementById("shadow_step_control");
         shadowStepCtrl.style.visibility = (shadow > 0) ? "visible" : "hidden";
+
+        var fxpsAlphaCtrl = document.getElementById("fxps_alpha_control");
+        fxpsAlphaCtrl.style.visibility = (shadow == 8) ? "visible" : "hidden";
     }
 
     {
@@ -724,6 +748,13 @@ function update_and_render() {
         document.getElementById("shadow_steps_val").textContent = shadowSteps;
         var uni = gl.getUniformLocation(pgm, "shadow_steps");
         gl.uniform1f(uni, shadowSteps);
+    }
+
+    {
+        var alpha = parseFloat(document.getElementById("fxps_alpha").value);
+        document.getElementById("fxps_alpha_val").textContent = alpha.toFixed(1);
+        var uni = gl.getUniformLocation(pgm, "fxps_alpha");
+        gl.uniform1f(uni, alpha);
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);
@@ -768,6 +799,7 @@ function update_and_render() {
         case "hard":             shadow_samples = 1 + S; break;
         case "soft":             shadow_samples = 1 + S; break;
         case "fxps":             shadow_samples = 1 + S; break;
+        case "fxps_fixed":       shadow_samples = 1 + S; break;
         case "contact":          shadow_samples = 1 + S; break;
         case "binary":           shadow_samples = S + 10; break;
         case "cone":             shadow_samples = 1 + S; break;
