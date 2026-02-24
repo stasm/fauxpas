@@ -1,18 +1,31 @@
-var canvas;
-var gl;
-var time_paused = false;
-var time;
-var frame_time_avg = 0;
+// ---------------------------------------------------------------------------
+// Shared state
+// ---------------------------------------------------------------------------
+var shared = {
+    time: 0,
+    paused: false,
+    instances: [],
+    selectedIndex: 0,
+};
 
-var vbo_pos, attr_pos;
-var vbo_tang, attr_tang;
-var vbo_bitang, attr_bitang;
-var vbo_uv, attr_uv;
-var index_buffer;
-var num_indices;
-var tex_sets;
-var pgm;
+var MAX_INSTANCES = 4;
 
+// ---------------------------------------------------------------------------
+// Label maps
+// ---------------------------------------------------------------------------
+var SHADING_LABELS = {
+    diffuse: 'None', normal: 'Normal Map', parallax: 'Parallax',
+    steep: 'Steep', pom: 'POM', iterative: 'Iterative',
+};
+var SHADOW_LABELS = {
+    none: 'No Shadow', hard: 'Hard POM', soft: 'Soft POM',
+    fxps: 'FXPS', fxps_fixed: 'FXPS Fixed \u03b1', contact: 'Contact',
+    binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
+};
+
+// ---------------------------------------------------------------------------
+// Shaders (module-level constants, shared across all instances)
+// ---------------------------------------------------------------------------
 var vert_src = `#version 300 es
 precision highp float;
 
@@ -430,181 +443,569 @@ void main(void)
 }
 `;
 
-// Estimates worst-case depth texture samples for each technique and updates
-// the cost labels next to each radio button. Bump mapping uses num_layers (steps
-// slider); fast approximate and relief mapping shadows use shadow_steps instead.
-function update_cost_labels() {
-    const N = parseFloat(document.getElementById("steps").value);
-    const S = parseFloat(document.getElementById("shadow_steps").value);
-
-    // tex_norm samples per parallax technique (depth in .a, normal in .rgb; excludes final shading lookup)
-    const shading_costs = {
-        'diffuse':   '0 tex',
-        'normal':    '0 tex',
-        'parallax':  '1 tex',
-        'steep':     `\u2264${1 + N} tex`,   // early exit possible
-        'pom':       `\u2264${N + 2} tex`,   // early exit + 1 extra for interpolation
-        'iterative': `${N} tex`,                   // N iterations × 1 fetch (height in .a, normalZ in .b)
-    };
-
-    // Additional tex_norm samples per shadow technique
-    const shadow_costs = {
-        'none':             '0 tex',
-        'hard':             `\u2264${1 + S} tex`,    // early exit on first occluder
-        'soft':             `${1 + S} tex`,           // no early exit
-        'fxps':             `${1 + S} tex`,           // no early exit
-        'fxps_fixed':       `${1 + S} tex`,           // no early exit
-        'contact':          `\u2264${1 + S} tex`,    // early exit on first occluder
-        'binary':           `\u2264${S + 10} tex`,   // linear ≤S + 8 bisect + 1 final
-        'cone':             `${1 + S} tex`,           // no early exit
-        'relief':           `\u2264${S + 7} tex`,    // linear ≤S + 5 bisect + 1 final
-    };
-
-    for (const [val, cost] of Object.entries(shading_costs)) {
-        const el = document.getElementById(`cost_shading_${val}`);
-        if (el) el.textContent = `(${cost})`;
-    }
-    for (const [val, cost] of Object.entries(shadow_costs)) {
-        const el = document.getElementById(`cost_shadow_${val}`);
-        if (el) el.textContent = `(${cost})`;
+// ---------------------------------------------------------------------------
+// Type conversion helpers
+// ---------------------------------------------------------------------------
+function shadingTypeToInt(val) {
+    switch (val) {
+        case "normal":    return 1;
+        case "parallax":  return 2;
+        case "steep":     return 3;
+        case "pom":       return 4;
+        case "iterative": return 5;
+        default:          return 0;
     }
 }
 
-function initBumpMapping() {
-    canvas = document.getElementById("gl_canvas");
-    canvas.onclick = function (e) {
-        time_paused = !time_paused;
+function shadowTypeToInt(val) {
+    switch (val) {
+        case "hard":       return 1;
+        case "soft":       return 2;
+        case "fxps":       return 3;
+        case "contact":    return 4;
+        case "binary":     return 5;
+        case "cone":       return 6;
+        case "relief":     return 7;
+        case "fxps_fixed": return 8;
+        default:           return 0;
     }
+}
 
-    // Init WebGL 2 context
-    {
-        gl = null;
-        try { gl = canvas.getContext("webgl2"); }
-        catch (_) { }
+// ---------------------------------------------------------------------------
+// Cost labels
+// ---------------------------------------------------------------------------
+function update_cost_labels_from(N, S) {
+    var shading_costs = {
+        'diffuse':   '0 tex',
+        'normal':    '0 tex',
+        'parallax':  '1 tex',
+        'steep':     '\u2264' + (1 + N) + ' tex',
+        'pom':       '\u2264' + (N + 2) + ' tex',
+        'iterative': N + ' tex',
+    };
+    var shadow_costs = {
+        'none':       '0 tex',
+        'hard':       '\u2264' + (1 + S) + ' tex',
+        'soft':       (1 + S) + ' tex',
+        'fxps':       (1 + S) + ' tex',
+        'fxps_fixed': (1 + S) + ' tex',
+        'contact':    '\u2264' + (1 + S) + ' tex',
+        'binary':     '\u2264' + (S + 10) + ' tex',
+        'cone':       (1 + S) + ' tex',
+        'relief':     '\u2264' + (S + 7) + ' tex',
+    };
+    for (var val in shading_costs) {
+        var el = document.getElementById('cost_shading_' + val);
+        if (el) el.textContent = '(' + shading_costs[val] + ')';
     }
+    for (var val in shadow_costs) {
+        var el = document.getElementById('cost_shadow_' + val);
+        if (el) el.textContent = '(' + shadow_costs[val] + ')';
+    }
+}
 
+function update_cost_labels() {
+    var N = parseFloat(document.getElementById("steps").value);
+    var S = parseFloat(document.getElementById("shadow_steps").value);
+    update_cost_labels_from(N, S);
+}
+
+// ---------------------------------------------------------------------------
+// Instance factory
+// ---------------------------------------------------------------------------
+function createInstance(canvasEl) {
+    var inst = {};
+    inst.canvas = canvasEl;
+    inst.frame_time_avg = 0;
+
+    // Default settings
+    inst.settings = {
+        tex_set:      0,
+        show_tex:     true,
+        shading_type: 'iterative',
+        shadow_type:  'fxps',
+        scale:        8,
+        bias_ratio:   100,
+        steps:        12,
+        shadow_steps: 3,
+        fxps_alpha:   1.0,
+    };
+
+    var gl;
+    try { gl = canvasEl.getContext("webgl2"); } catch (_) {}
     if (!gl) {
         alert("Unable to initialize WebGL 2. Your browser may not support it.");
+        return null;
+    }
+    inst.gl = gl;
+
+    gl.clearColor(1.0, 1.0, 1.0, 1.0);
+    gl.clearDepth(1.0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.CULL_FACE);
+
+    // Shaders
+    var frag = get_shader(gl, frag_src, true);
+    var vert = get_shader(gl, vert_src, false);
+    inst.pgm = gl.createProgram();
+    gl.attachShader(inst.pgm, vert);
+    gl.attachShader(inst.pgm, frag);
+    gl.linkProgram(inst.pgm);
+    if (!gl.getProgramParameter(inst.pgm, gl.LINK_STATUS)) {
+        alert("Shader link error: " + gl.getProgramInfoLog(inst.pgm));
+    }
+    gl.useProgram(inst.pgm);
+
+    inst.attr_pos = gl.getAttribLocation(inst.pgm, "vert_pos");
+    gl.enableVertexAttribArray(inst.attr_pos);
+    inst.attr_tang = gl.getAttribLocation(inst.pgm, "vert_tang");
+    gl.enableVertexAttribArray(inst.attr_tang);
+    inst.attr_bitang = gl.getAttribLocation(inst.pgm, "vert_bitang");
+    gl.enableVertexAttribArray(inst.attr_bitang);
+    inst.attr_uv = gl.getAttribLocation(inst.pgm, "vert_uv");
+    gl.enableVertexAttribArray(inst.attr_uv);
+
+    // Mesh buffers
+    inst.vbo_pos = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1, 1, 1, 1, 1, -1, 1, 1, 1, -1, 1,
+        -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, -1,
+        1, -1, -1, 1, 1, 1, 1, -1, 1, 1, 1, -1,
+        -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1,
+        -1, 1, -1, 1, 1, 1, -1, 1, 1, 1, 1, -1,
+        -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, -1, -1,
+    ]), gl.STATIC_DRAW);
+
+    inst.vbo_tang = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_tang);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+        -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0,
+        0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+        0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+        1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+        1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,
+    ]), gl.STATIC_DRAW);
+
+    inst.vbo_bitang = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_bitang);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+        0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+        0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+        0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0,
+        0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,
+        0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1,
+    ]), gl.STATIC_DRAW);
+
+    inst.vbo_uv = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_uv);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        0, 1, 1, 0, 0, 0, 1, 1,
+        1, 1, 0, 0, 1, 0, 0, 1,
+        1, 1, 0, 0, 0, 1, 1, 0,
+        0, 1, 1, 0, 1, 1, 0, 0,
+        0, 0, 1, 1, 0, 1, 1, 0,
+        0, 1, 1, 0, 0, 0, 1, 1,
+    ]), gl.STATIC_DRAW);
+
+    inst.index_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inst.index_buffer);
+    var indices = [
+        0, 1, 2, 0, 3, 1,
+        4, 6, 5, 4, 5, 7,
+        8, 9, 10, 8, 11, 9,
+        12, 14, 13, 12, 13, 15,
+        16, 18, 17, 16, 17, 19,
+        20, 21, 22, 20, 23, 21,
+    ];
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+    inst.num_indices = indices.length;
+
+    // Textures (each GL context needs its own copies)
+    inst.tex_sets = [
+        { norm: load_texture(gl, "bump_normal.png"),   diffuse: load_texture(gl, "bump_diffuse.png") },
+        { norm: load_texture(gl, "bricks_normal.png"), diffuse: load_texture(gl, "bricks_diffuse.png") },
+        { norm: load_texture(gl, "rocks_normal.png"),  diffuse: load_texture(gl, "rocks_difuse.png") },
+    ];
+
+    return inst;
+}
+
+// ---------------------------------------------------------------------------
+// Per-instance render
+// ---------------------------------------------------------------------------
+function renderInstance(inst, time) {
+    var gl = inst.gl;
+    var s  = inst.settings;
+
+    // Sync backing resolution to display size for sharpness
+    var dw = inst.canvas.clientWidth;
+    var dh = inst.canvas.clientHeight;
+    if (inst.canvas.width !== dw || inst.canvas.height !== dh) {
+        inst.canvas.width = dw;
+        inst.canvas.height = dh;
+        gl.viewport(0, 0, dw, dh);
+    }
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Use actual display aspect so the cube is never distorted.
+    // The fixed height + FOV means the cube is always the same size vertically;
+    // wider canvases just reveal more of the scene on the sides.
+    var a = mtx_perspective(45, dw / dh, 0.1, 100.0);
+    var b = mtx_translation(0, 0, -4.5);
+    var c = mtx_rotation_x(0.4);
+    var d = mtx_rotation_y(time * 0.0075);
+    var model = mtx_mul(mtx_mul(b, c), d);
+
+    gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "model_mtx"), false, model);
+    gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "norm_mtx"), false, mtx_transpose(mtx_inverse(model)));
+    gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "proj_mtx"), false, mtx_mul(a, model));
+
+    // Texture set
+    var set = inst.tex_sets[s.tex_set];
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, set.norm);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_norm"), 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_diffuse"), 1);
+
+    // Technique uniforms
+    var type = shadingTypeToInt(s.shading_type);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "type"), type);
+
+    var scale = 0.01 * s.scale;
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "depth_scale"), scale);
+
+    var ratio = 0.01 * s.bias_ratio;
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "parallax_bias"), ratio * scale);
+
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "num_layers"), s.steps);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "show_tex"), s.show_tex ? 1 : 0);
+
+    var shadow = shadowTypeToInt(s.shadow_type);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "shadow_type"), shadow);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "shadow_steps"), s.shadow_steps);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "fxps_alpha"), s.fxps_alpha);
+
+    // Draw
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
+    gl.vertexAttribPointer(inst.attr_pos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_tang);
+    gl.vertexAttribPointer(inst.attr_tang, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_bitang);
+    gl.vertexAttribPointer(inst.attr_bitang, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_uv);
+    gl.vertexAttribPointer(inst.attr_uv, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inst.index_buffer);
+
+    var t0 = performance.now();
+    gl.drawElements(gl.TRIANGLES, inst.num_indices, gl.UNSIGNED_SHORT, 0);
+    gl.finish();
+    var frame_ms = performance.now() - t0;
+    inst.frame_time_avg = inst.frame_time_avg === 0
+        ? frame_ms
+        : inst.frame_time_avg * 0.95 + frame_ms * 0.05;
+
+    // Stats overlay
+    var N = s.steps;
+    var S = s.shadow_steps;
+    var parallax_samples = 0;
+    switch (s.shading_type) {
+        case "diffuse":   parallax_samples = 0; break;
+        case "normal":    parallax_samples = 0; break;
+        case "parallax":  parallax_samples = 1; break;
+        case "steep":     parallax_samples = N; break;
+        case "pom":       parallax_samples = N + 1; break;
+        case "iterative": parallax_samples = N; break;
+    }
+    var shadow_samples = 0;
+    switch (s.shadow_type) {
+        case "none":       shadow_samples = 0; break;
+        case "hard":       shadow_samples = 1 + S; break;
+        case "soft":       shadow_samples = 1 + S; break;
+        case "fxps":       shadow_samples = 1 + S; break;
+        case "fxps_fixed": shadow_samples = 1 + S; break;
+        case "contact":    shadow_samples = 1 + S; break;
+        case "binary":     shadow_samples = S + 10; break;
+        case "cone":       shadow_samples = 1 + S; break;
+        case "relief":     shadow_samples = S + 7; break;
+    }
+    var total_samples = parallax_samples + shadow_samples;
+    var time_str = inst.frame_time_avg < 1
+        ? (inst.frame_time_avg * 1000).toFixed(0) + " \u00B5s"
+        : inst.frame_time_avg.toFixed(2) + " ms";
+    inst.statsOverlayEl.textContent = time_str + " | ~" + total_samples + " tex/frag";
+}
+
+// ---------------------------------------------------------------------------
+// Render loop
+// ---------------------------------------------------------------------------
+function startRenderLoop() {
+    setInterval(function () {
+        if (!shared.paused) {
+            shared.time++;
+        }
+        for (var i = 0; i < shared.instances.length; i++) {
+            renderInstance(shared.instances[i], shared.time);
+        }
+    }, 15);
+}
+
+// ---------------------------------------------------------------------------
+// Title bar
+// ---------------------------------------------------------------------------
+function updateTitleBar(inst) {
+    var s = inst.settings;
+    inst.titleTextEl.textContent =
+        (SHADING_LABELS[s.shading_type] || s.shading_type)
+        + '  \u2502  '
+        + (SHADOW_LABELS[s.shadow_type] || s.shadow_type);
+}
+
+// ---------------------------------------------------------------------------
+// Selection & control sync
+// ---------------------------------------------------------------------------
+function selectInstance(index) {
+    shared.selectedIndex = index;
+    for (var i = 0; i < shared.instances.length; i++) {
+        var cls = shared.instances[i].titleBarEl.classList;
+        if (i === index) cls.add('selected'); else cls.remove('selected');
+    }
+    syncControlsFromInstance(shared.instances[index]);
+}
+
+function syncControlsFromInstance(inst) {
+    var s = inst.settings;
+
+    // Texture set radios
+    var texNames = ['bump', 'bricks', 'rocks'];
+    var texRadio = document.querySelector('input[name="tex_set"][value="' + texNames[s.tex_set] + '"]');
+    if (texRadio) texRadio.checked = true;
+
+    // Show tex checkbox
+    document.getElementById('show_tex').checked = s.show_tex;
+
+    // Shading type radio
+    var shadingRadio = document.querySelector('input[name="shading_type"][value="' + s.shading_type + '"]');
+    if (shadingRadio) shadingRadio.checked = true;
+
+    // Shadow type radio
+    var shadowRadio = document.querySelector('input[name="shadow_type"][value="' + s.shadow_type + '"]');
+    if (shadowRadio) shadowRadio.checked = true;
+
+    // Sliders + display spans
+    document.getElementById('scale').value = s.scale;
+    document.getElementById('scale_val').textContent = (0.01 * s.scale).toFixed(2);
+
+    document.getElementById('bias_ratio').value = s.bias_ratio;
+    document.getElementById('bias_ratio_val').textContent = Math.round(s.bias_ratio) + '%';
+
+    document.getElementById('steps').value = s.steps;
+    document.getElementById('steps_val').textContent = s.steps;
+
+    document.getElementById('shadow_steps').value = s.shadow_steps;
+    document.getElementById('shadow_steps_val').textContent = s.shadow_steps;
+
+    document.getElementById('fxps_alpha').value = s.fxps_alpha;
+    document.getElementById('fxps_alpha_val').textContent = parseFloat(s.fxps_alpha).toFixed(1);
+
+    // Conditional visibility
+    var type = shadingTypeToInt(s.shading_type);
+    document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
+    document.getElementById('bias_ratio_control').style.visibility = type == 5 ? 'visible' : 'hidden';
+    document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
+
+    var shadow = shadowTypeToInt(s.shadow_type);
+    document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
+    document.getElementById('fxps_alpha_control').style.visibility = shadow == 8 ? 'visible' : 'hidden';
+
+    // Cost labels
+    update_cost_labels_from(s.steps, s.shadow_steps);
+}
+
+// ---------------------------------------------------------------------------
+// Control event binding (once, writes to selected instance)
+// ---------------------------------------------------------------------------
+function bindControlEvents() {
+    function sel() { return shared.instances[shared.selectedIndex]; }
+
+    // Texture set radios
+    var texSetMap = { bump: 0, bricks: 1, rocks: 2 };
+    var texRadios = document.querySelectorAll('input[name="tex_set"]');
+    for (var i = 0; i < texRadios.length; i++) {
+        texRadios[i].addEventListener('change', function () {
+            sel().settings.tex_set = texSetMap[this.value];
+        });
+    }
+
+    // Show tex checkbox
+    document.getElementById('show_tex').addEventListener('change', function () {
+        sel().settings.show_tex = this.checked;
+    });
+
+    // Shading type radios
+    var shadingRadios = document.querySelectorAll('input[name="shading_type"]');
+    for (var i = 0; i < shadingRadios.length; i++) {
+        shadingRadios[i].addEventListener('change', function () {
+            sel().settings.shading_type = this.value;
+            var type = shadingTypeToInt(this.value);
+            document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
+            document.getElementById('bias_ratio_control').style.visibility = type == 5 ? 'visible' : 'hidden';
+            document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
+            updateTitleBar(sel());
+        });
+    }
+
+    // Shadow type radios
+    var shadowRadios = document.querySelectorAll('input[name="shadow_type"]');
+    for (var i = 0; i < shadowRadios.length; i++) {
+        shadowRadios[i].addEventListener('change', function () {
+            sel().settings.shadow_type = this.value;
+            var shadow = shadowTypeToInt(this.value);
+            document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
+            document.getElementById('fxps_alpha_control').style.visibility = shadow == 8 ? 'visible' : 'hidden';
+            updateTitleBar(sel());
+        });
+    }
+
+    // Sliders
+    document.getElementById('scale').addEventListener('input', function () {
+        sel().settings.scale = parseFloat(this.value);
+        document.getElementById('scale_val').textContent = (0.01 * sel().settings.scale).toFixed(2);
+    });
+    document.getElementById('bias_ratio').addEventListener('input', function () {
+        sel().settings.bias_ratio = parseFloat(this.value);
+        document.getElementById('bias_ratio_val').textContent = Math.round(sel().settings.bias_ratio) + '%';
+    });
+    document.getElementById('steps').addEventListener('input', function () {
+        sel().settings.steps = parseFloat(this.value);
+        document.getElementById('steps_val').textContent = sel().settings.steps;
+        update_cost_labels();
+    });
+    document.getElementById('shadow_steps').addEventListener('input', function () {
+        sel().settings.shadow_steps = parseFloat(this.value);
+        document.getElementById('shadow_steps_val').textContent = sel().settings.shadow_steps;
+        update_cost_labels();
+    });
+    document.getElementById('fxps_alpha').addEventListener('input', function () {
+        sel().settings.fxps_alpha = parseFloat(this.value);
+        document.getElementById('fxps_alpha_val').textContent = sel().settings.fxps_alpha.toFixed(1);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Add / remove instances
+// ---------------------------------------------------------------------------
+function addInstance() {
+    if (shared.instances.length >= MAX_INSTANCES) return;
+
+    var strip = document.getElementById('canvas_strip');
+    var addBtn = document.getElementById('add_canvas_btn');
+
+    // Container
+    var container = document.createElement('div');
+    container.className = 'canvas-container';
+
+    // Title bar
+    var titleBar = document.createElement('div');
+    titleBar.className = 'canvas-title-bar';
+    var titleText = document.createElement('span');
+    titleText.className = 'title-text';
+    titleBar.appendChild(titleText);
+
+    // Close button (hidden if only one instance — managed in removeInstance)
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'canvas-close-btn';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.title = 'Remove';
+    titleBar.appendChild(closeBtn);
+    container.appendChild(titleBar);
+
+    // Canvas
+    var canvasEl = document.createElement('canvas');
+    canvasEl.width = 2;   // will be synced to display size on first render
+    canvasEl.height = 2;
+    container.appendChild(canvasEl);
+
+    // Stats overlay
+    var statsEl = document.createElement('div');
+    statsEl.className = 'stats-overlay';
+    container.appendChild(statsEl);
+
+    strip.insertBefore(container, addBtn);
+
+    var inst = createInstance(canvasEl);
+    if (!inst) {
+        container.remove();
         return;
     }
 
-    // Init GL flags
-    {
-        gl.clearColor(1.0, 1.0, 1.0, 1.0);
-        gl.clearDepth(1.0);
-        gl.enable(gl.DEPTH_TEST);
-        gl.depthFunc(gl.LEQUAL);
-        gl.enable(gl.CULL_FACE);
+    inst.containerEl = container;
+    inst.titleBarEl = titleBar;
+    inst.titleTextEl = titleText;
+    inst.closeBtnEl = closeBtn;
+    inst.statsOverlayEl = statsEl;
+
+    shared.instances.push(inst);
+
+    // Wire events — close over inst object, not index
+    titleBar.addEventListener('click', function (e) {
+        if (e.target === closeBtn) return;
+        selectInstance(shared.instances.indexOf(inst));
+    });
+    canvasEl.addEventListener('click', function () {
+        shared.paused = !shared.paused;
+    });
+    closeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        removeInstance(shared.instances.indexOf(inst));
+    });
+
+    updateTitleBar(inst);
+    selectInstance(shared.instances.indexOf(inst));
+    updateCloseButtons();
+    updateAddButton();
+}
+
+function removeInstance(index) {
+    if (index < 0 || shared.instances.length <= 1) return;
+    var inst = shared.instances[index];
+    inst.containerEl.remove();
+    shared.instances.splice(index, 1);
+
+    var newSel = Math.min(shared.selectedIndex, shared.instances.length - 1);
+    selectInstance(newSel);
+    updateCloseButtons();
+    updateAddButton();
+}
+
+function updateCloseButtons() {
+    var hide = shared.instances.length <= 1;
+    for (var i = 0; i < shared.instances.length; i++) {
+        shared.instances[i].closeBtnEl.style.display = hide ? 'none' : '';
     }
+}
 
-    // Init shaders
-    {
-        var frag = get_shader(gl, frag_src, true);
-        var vert = get_shader(gl, vert_src, false);
-        pgm = gl.createProgram();
-        gl.attachShader(pgm, vert);
-        gl.attachShader(pgm, frag);
-        gl.linkProgram(pgm);
+function updateAddButton() {
+    var btn = document.getElementById('add_canvas_btn');
+    btn.style.display = shared.instances.length >= MAX_INSTANCES ? 'none' : '';
+}
 
-        if (!gl.getProgramParameter(pgm, gl.LINK_STATUS)) {
-            alert("Unable to initialize the shader program: " +
-                gl.getProgramInfoLog(pgm));
-        }
-
-        gl.useProgram(pgm);
-        attr_pos = gl.getAttribLocation(pgm, "vert_pos");
-        gl.enableVertexAttribArray(attr_pos);
-        attr_tang = gl.getAttribLocation(pgm, "vert_tang");
-        gl.enableVertexAttribArray(attr_tang);
-        attr_bitang = gl.getAttribLocation(pgm, "vert_bitang");
-        gl.enableVertexAttribArray(attr_bitang);
-        attr_uv = gl.getAttribLocation(pgm, "vert_uv");
-        gl.enableVertexAttribArray(attr_uv);
-    }
-
-    // Init meshes
-    {
-        // Positions
-        vbo_pos = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);
-        var verts = [
-            -1, -1, 1, 1, 1, 1, -1, 1, 1, 1, -1, 1, // Front
-            -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, -1, // Back
-            1, -1, -1, 1, 1, 1, 1, -1, 1, 1, 1, -1, // Right
-            -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, // Left
-            -1, 1, -1, 1, 1, 1, -1, 1, 1, 1, 1, -1, // Top
-            -1, -1, -1, 1, -1, 1, -1, -1, 1, 1, -1, -1, // Bottom
-        ];
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-
-        // Tangents
-        vbo_tang = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo_tang);
-        var tangs = [
-            1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, // Front
-            -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, // Back
-            0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, // Right
-            0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, // Left
-            1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, // Top
-            1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, // Bottom
-        ];
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tangs), gl.STATIC_DRAW);
-
-        // Bitangents
-        vbo_bitang = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo_bitang);
-        var bitangs = [
-            0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, // Front
-            0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, // Back
-            0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, // Right
-            0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, // Left
-            0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, // Top
-            0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, // Bot
-        ];
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(bitangs), gl.STATIC_DRAW);
-
-        // UVs
-        vbo_uv = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo_uv);
-        var uvs = [
-            0, 1, 1, 0, 0, 0, 1, 1, // Front
-            1, 1, 0, 0, 1, 0, 0, 1, // Back
-            1, 1, 0, 0, 0, 1, 1, 0, // Right
-            0, 1, 1, 0, 1, 1, 0, 0, // Left
-            0, 0, 1, 1, 0, 1, 1, 0, // Top
-            0, 1, 1, 0, 0, 0, 1, 1, // Bottom
-        ];
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
-
-        index_buffer = gl.createBuffer();
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
-        var indices = [
-            0, 1, 2, 0, 3, 1, // Front
-            4, 6, 5, 4, 5, 7, // Back
-            8, 9, 10, 8, 11, 9, // Right
-            12, 14, 13, 12, 13, 15, // Left
-            16, 18, 17, 16, 17, 19, // Top
-            20, 21, 22, 20, 23, 21, // Bottom
-        ];
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices),
-            gl.STATIC_DRAW);
-        num_indices = indices.length;
-    }
-
-    // Init textures
-    tex_sets = [
-        { norm: load_texture("bump_normal.png"),   diffuse: load_texture("bump_diffuse.png") },
-        { norm: load_texture("bricks_normal.png"), diffuse: load_texture("bricks_diffuse.png") },
-        { norm: load_texture("rocks_normal.png"),  diffuse: load_texture("rocks_difuse.png") },
-    ];
-
-    time = 0;
-    setInterval(update_and_render, 15);
-
-    document.getElementById("steps").addEventListener("input", update_cost_labels);
-    document.getElementById("shadow_steps").addEventListener("input", update_cost_labels);
-    update_cost_labels();
-
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+function initBumpMapping() {
+    document.getElementById('add_canvas_btn').addEventListener('click', function () {
+        addInstance();
+    });
+    bindControlEvents();
+    addInstance();
+    startRenderLoop();
 }
 
 if (document.readyState === 'loading') {
@@ -613,207 +1014,9 @@ if (document.readyState === 'loading') {
     initBumpMapping();
 }
 
-function update_and_render() {
-    if (!time_paused) {
-        time++;
-    }
-
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    var a = mtx_perspective(45, 680.0 / 382.0, 0.1, 100.0);
-    var b = mtx_translation(0, 0, -4.5);
-    var c = mtx_rotation_x(0.4);
-    var d = mtx_rotation_y(time * 0.0075);
-
-    var model = mtx_mul(mtx_mul(b, c), d);
-
-    {
-        var uni = gl.getUniformLocation(pgm, "model_mtx");
-        gl.uniformMatrix4fv(uni, false, model);
-    }
-
-    {
-        var uni = gl.getUniformLocation(pgm, "norm_mtx");
-        gl.uniformMatrix4fv(uni, false, mtx_transpose(mtx_inverse(model)));
-    }
-
-    {
-        var uni = gl.getUniformLocation(pgm, "proj_mtx");
-        gl.uniformMatrix4fv(uni, false, mtx_mul(a, model));
-    }
-
-    {
-        var set_idx = 0;
-        switch (document.querySelector('input[name="tex_set"]:checked').value) {
-            case "bricks": set_idx = 1; break;
-            case "rocks":  set_idx = 2; break;
-        }
-        var set = tex_sets[set_idx];
-
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, set.norm);
-        var uni = gl.getUniformLocation(pgm, "tex_norm");
-        gl.uniform1i(uni, 0);
-
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
-        uni = gl.getUniformLocation(pgm, "tex_diffuse");
-        gl.uniform1i(uni, 1);
-    }
-
-
-    {
-        var type = 0;
-        switch (document.querySelector('input[name="shading_type"]:checked').value) {
-            case "normal": type = 1; break;
-            case "parallax": type = 2; break;
-            case "steep": type = 3; break;
-            case "pom": type = 4; break;
-            case "iterative": type = 5; break;
-        }
-
-        var step = document.getElementById("scale_control");
-        if (type < 2) {
-            step.style.visibility = "hidden";
-        } else {
-            step.style.visibility = "visible";
-        }
-
-        var biasRatioCtrl = document.getElementById("bias_ratio_control");
-        biasRatioCtrl.style.visibility = (type == 5) ? "visible" : "hidden";
-
-        var step = document.getElementById("step_control");
-        if (type < 3) {
-            step.style.visibility = "hidden";
-        } else {
-            step.style.visibility = "visible";
-        }
-
-        var uni = gl.getUniformLocation(pgm, "type");
-        gl.uniform1i(uni, type);
-    }
-
-    {
-        var scale = 0.01 * parseFloat(document.getElementById("scale").value);
-        document.getElementById("scale_val").textContent = scale.toFixed(2);
-        var uni = gl.getUniformLocation(pgm, "depth_scale");
-        gl.uniform1f(uni, scale);
-    }
-
-    {
-        var scale = 0.01 * parseFloat(document.getElementById("scale").value);
-        var ratio = 0.01 * parseFloat(document.getElementById("bias_ratio").value);
-        document.getElementById("bias_ratio_val").textContent = Math.round(ratio * 100) + "%";
-        var uni = gl.getUniformLocation(pgm, "parallax_bias");
-        gl.uniform1f(uni, ratio * scale);
-    }
-
-    {
-        var steps = parseFloat(document.getElementById("steps").value);
-        document.getElementById("steps_val").textContent = steps;
-        var uni = gl.getUniformLocation(pgm, "num_layers");
-        gl.uniform1f(uni, steps);
-    }
-
-    {
-        var show_tex = document.getElementById('show_tex').checked;
-        var uni = gl.getUniformLocation(pgm, "show_tex");
-        gl.uniform1i(uni, show_tex);
-    }
-
-    {
-        var shadow = 0;
-        switch (document.querySelector('input[name="shadow_type"]:checked').value) {
-            case "hard": shadow = 1; break;
-            case "soft": shadow = 2; break;
-            case "fxps": shadow = 3; break;
-            case "contact": shadow = 4; break;
-            case "binary": shadow = 5; break;
-            case "cone": shadow = 6; break;
-            case "relief":     shadow = 7; break;
-            case "fxps_fixed": shadow = 8; break;
-        }
-        var uni = gl.getUniformLocation(pgm, "shadow_type");
-        gl.uniform1i(uni, shadow);
-
-        var shadowStepCtrl = document.getElementById("shadow_step_control");
-        shadowStepCtrl.style.visibility = (shadow > 0) ? "visible" : "hidden";
-
-        var fxpsAlphaCtrl = document.getElementById("fxps_alpha_control");
-        fxpsAlphaCtrl.style.visibility = (shadow == 8) ? "visible" : "hidden";
-    }
-
-    {
-        var shadowSteps = parseFloat(document.getElementById("shadow_steps").value);
-        document.getElementById("shadow_steps_val").textContent = shadowSteps;
-        var uni = gl.getUniformLocation(pgm, "shadow_steps");
-        gl.uniform1f(uni, shadowSteps);
-    }
-
-    {
-        var alpha = parseFloat(document.getElementById("fxps_alpha").value);
-        document.getElementById("fxps_alpha_val").textContent = alpha.toFixed(1);
-        var uni = gl.getUniformLocation(pgm, "fxps_alpha");
-        gl.uniform1f(uni, alpha);
-    }
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo_pos);
-    gl.vertexAttribPointer(attr_pos, 3, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo_tang);
-    gl.vertexAttribPointer(attr_tang, 3, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo_bitang);
-    gl.vertexAttribPointer(attr_bitang, 3, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo_uv);
-    gl.vertexAttribPointer(attr_uv, 2, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, index_buffer);
-
-    var t0 = performance.now();
-    gl.drawElements(gl.TRIANGLES, num_indices, gl.UNSIGNED_SHORT, 0);
-    gl.finish();
-    var frame_ms = performance.now() - t0;
-    frame_time_avg = frame_time_avg === 0 ? frame_ms : frame_time_avg * 0.95 + frame_ms * 0.05;
-
-    // Estimate texture samples per fragment
-    var N = parseFloat(document.getElementById("steps").value);
-    var S = parseFloat(document.getElementById("shadow_steps").value);
-    var shading_val = document.querySelector('input[name="shading_type"]:checked').value;
-    var shadow_val = document.querySelector('input[name="shadow_type"]:checked').value;
-
-    var parallax_samples = 0;
-    switch (shading_val) {
-        case "diffuse":   parallax_samples = 0; break;
-        case "normal":    parallax_samples = 0; break;
-        case "parallax":  parallax_samples = 1; break;
-        case "steep":     parallax_samples = N; break;
-        case "pom":       parallax_samples = N + 1; break;
-        case "iterative": parallax_samples = N; break;
-    }
-
-    var shadow_samples = 0;
-    switch (shadow_val) {
-        case "none":             shadow_samples = 0; break;
-        case "hard":             shadow_samples = 1 + S; break;
-        case "soft":             shadow_samples = 1 + S; break;
-        case "fxps":             shadow_samples = 1 + S; break;
-        case "fxps_fixed":       shadow_samples = 1 + S; break;
-        case "contact":          shadow_samples = 1 + S; break;
-        case "binary":           shadow_samples = S + 10; break;
-        case "cone":             shadow_samples = 1 + S; break;
-        case "relief":           shadow_samples = S + 7; break;
-    }
-
-    var total_samples = parallax_samples + shadow_samples;
-    var overlay = document.getElementById("stats_overlay");
-    var time_str = frame_time_avg < 1
-        ? (frame_time_avg * 1000).toFixed(0) + " \u00B5s"
-        : frame_time_avg.toFixed(2) + " ms";
-    overlay.textContent = time_str + " | ~" + total_samples + " tex/frag";
-}
-
+// ---------------------------------------------------------------------------
+// Shader compilation
+// ---------------------------------------------------------------------------
 function get_shader(gl, src, is_frag) {
     var shader = gl.createShader(is_frag ? gl.FRAGMENT_SHADER :
         gl.VERTEX_SHADER);
@@ -829,7 +1032,7 @@ function get_shader(gl, src, is_frag) {
     return shader;
 }
 
-function load_texture(img_path) {
+function load_texture(gl, img_path) {
     var tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
