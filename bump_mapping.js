@@ -129,9 +129,8 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
         if (float(i) >= num_layers) break;
         vec4 texSample = texture(tex_norm, uv + ray.xy);
         float sampledHeight = texSample.a * depth_scale - parallax_bias;
-        float normalZ = texSample.b * 2.0 - 1.0;
         float heightDiff = sampledHeight - ray.z;
-        ray += eyeDir * heightDiff * normalZ;
+        ray += eyeDir * heightDiff * texSample.z;
     }
 
     return ray.xy;
