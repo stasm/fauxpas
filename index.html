@@ -6,8 +6,8 @@
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            background: #fff;
+            color: #111;
             display: flex;
             justify-content: center;
             margin: 0;
@@ -15,6 +15,7 @@
         }
         .content {
             max-width: 700px;
+            width: 100%;
         }
         h1 {
             font-size: 1.4em;
@@ -25,34 +26,37 @@
             cursor: pointer;
             border-radius: 4px;
             margin-bottom: 10px;
+            width: 100%;
         }
-        .controls p {
-            margin: 6px 0;
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 24px;
         }
-        .radio-columns {
-            display: flex;
-            gap: 32px;
+        .control-column h3 {
+            margin: 0 0 8px 0;
+            font-size: 1em;
         }
-        .radio-columns p {
+        .control-column p {
             margin: 0;
         }
         input[type="radio"],
         input[type="checkbox"] {
             margin-right: 4px;
-            accent-color: #4ade80;
+            accent-color: #111;
         }
         table {
-            margin-top: 4px;
+            margin-top: 8px;
         }
         td {
             padding: 2px 8px 2px 0;
         }
         input[type="range"] {
-            width: 200px;
-            accent-color: #4ade80;
+            width: 160px;
+            accent-color: #111;
         }
         .cost {
-            color: #666;
+            color: #999;
             font-size: 0.8em;
         }
     </style>
@@ -61,20 +65,22 @@
 <div class="content">
     <h1>Exploring Bump Mapping with WebGL</h1>
 
-    <canvas id="gl_canvas" width="680" height="382"></canvas>
+    <canvas id="gl_canvas" width="1080" height="607"></canvas>
 
-    <div class="controls">
-        <p>
-            Texture set:
-            <input type="radio" name="tex_set" value="bump" checked/>Classic
-            &nbsp;&nbsp;
-            <input type="radio" name="tex_set" value="bricks"/>Bricks
-            &nbsp;&nbsp;
-            <input type="radio" name="tex_set" value="rocks"/>Rocks
-        </p>
-        <div class="radio-columns">
+    <div class="controls-grid">
+        <div class="control-column">
+            <h3>Texture set</h3>
             <p>
-                Bump mapping:<br/>
+                <input type="radio" name="tex_set" value="bump" checked/>Classic<br/>
+                <input type="radio" name="tex_set" value="bricks"/>Bricks<br/>
+                <input type="radio" name="tex_set" value="rocks"/>Rocks
+            </p>
+            <br/>
+            <p><input type="checkbox" id="show_tex" checked/>Show diffuse texture</p>
+        </div>
+        <div class="control-column">
+            <h3>Parallax method</h3>
+            <p>
                 <input type="radio" name="shading_type" value="diffuse"/>None <span class="cost" id="cost_shading_diffuse"></span><br/>
                 <input type="radio" name="shading_type" value="normal"/>Normal mapping <span class="cost" id="cost_shading_normal"></span><br/>
                 <input type="radio" name="shading_type" value="parallax"/>Parallax mapping <span class="cost" id="cost_shading_parallax"></span><br/>
@@ -82,8 +88,27 @@
                 <input type="radio" name="shading_type" value="pom"/>Parallax occlusion mapping <span class="cost" id="cost_shading_pom"></span><br/>
                 <input type="radio" name="shading_type" value="iterative" checked/>Iterative parallax mapping <span class="cost" id="cost_shading_iterative"></span>
             </p>
+            <table>
+                <tr id="scale_control">
+                    <td>Scale</td>
+                    <td><input type="range" min="0" max="50" value="5" id="scale"/></td>
+                    <td><span id="scale_val">0.05</span></td>
+                </tr>
+                <tr id="bias_ratio_control">
+                    <td>Bias</td>
+                    <td><input type="range" min="0" max="100" value="50" id="bias_ratio"/></td>
+                    <td><span id="bias_ratio_val">50%</span></td>
+                </tr>
+                <tr id="step_control">
+                    <td>Steps</td>
+                    <td><input type="range" min="1" max="32" value="4" id="steps"/></td>
+                    <td><span id="steps_val">4</span></td>
+                </tr>
+            </table>
+        </div>
+        <div class="control-column">
+            <h3>Shadowing method</h3>
             <p>
-                Self-shadows:<br/>
                 <input type="radio" name="shadow_type" value="none" checked/>None <span class="cost" id="cost_shadow_none"></span><br/>
                 <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
                 <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
@@ -93,32 +118,14 @@
                 <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft <span class="cost" id="cost_shadow_cone"></span><br/>
                 <input type="radio" name="shadow_type" value="relief"/>Relief mapping <span class="cost" id="cost_shadow_relief"></span>
             </p>
-        </div>
-        <p>
-            <input type="checkbox" id="show_tex" checked/>Show diffuse texture<br/>
             <table>
-                <tr id="scale_control">
-                    <td>Parallax scale</td>
-                    <td><input type="range" min="0" max="50" value="5" id="scale"/></td>
-                    <td><span id="scale_val">0.05</span></td>
-                </tr>
-                <tr id="bias_ratio_control">
-                    <td>Parallax bias</td>
-                    <td><input type="range" min="0" max="100" value="50" id="bias_ratio"/></td>
-                    <td><span id="bias_ratio_val">50%</span></td>
-                </tr>
-                <tr id="step_control">
-                    <td>Number of steps</td>
-                    <td><input type="range" min="1" max="32" value="4" id="steps"/></td>
-                    <td><span id="steps_val">4</span></td>
-                </tr>
                 <tr id="shadow_step_control">
-                    <td>Shadow steps</td>
-                    <td><input type="range" min="1" max="32" value="16" id="shadow_steps"/></td>
-                    <td><span id="shadow_steps_val">16</span></td>
+                    <td>Steps</td>
+                    <td><input type="range" min="1" max="32" value="4" id="shadow_steps"/></td>
+                    <td><span id="shadow_steps_val">4</span></td>
                 </tr>
             </table>
-        </p>
+        </div>
     </div>
 </div>
 
