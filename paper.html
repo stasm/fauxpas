@@ -31,7 +31,7 @@
 
 <h3>2.2 Relief Mapping and Linear Ray Marching</h3>
 
-<p>Policarpo, Oliveira, and Comba [2005] introduced relief mapping, which ray-marches through a height field in tangent space using a uniform linear search followed by a binary refinement step. This was the first technique to produce per-pixel self-occlusion and self-shadowing from height maps without precomputation, supporting fully dynamic lighting. McGuire and McGuire [2005] proposed steep parallax mapping, a simplified variant with fewer iterations. These approaches produce hard shadows: a ray either intersects the height field (shadowed) or does not (lit), with no intermediate softness. Banding artifacts from the discrete linear search are visible at low iteration counts.</p>
+<p>Policarpo, Oliveira, and Comba [2005] introduced relief mapping, which ray-marches through a height field in tangent space using a uniform linear search followed by a binary refinement step. This was the first technique to produce per-pixel self-occlusion and self-shadowing from height maps without precomputation, supporting fully dynamic lighting. McGuire and McGuire [2005] proposed steep parallax mapping, a simplified variant with fewer iterations. Premecz [2006] presented an iterative refinement approach that converges on the ray-surface intersection by scaling each step by the remaining height difference and the surface normal&rsquo;s Z component, providing slope-aware convergence with fewer iterations than linear search. These approaches produce hard shadows: a ray either intersects the height field (shadowed) or does not (lit), with no intermediate softness. Banding artifacts from the discrete linear search are visible at low iteration counts.</p>
 
 <h3>2.3 Parallax Occlusion Mapping with Soft Shadows</h3>
 
@@ -245,83 +245,56 @@
 
 <h2>8. Implementation</h2>
 
-<p>The complete shadow function in GLSL, incorporating height-adaptive &alpha; and the scale-invariant normalization:</p>
+<p>The complete implementation in GLSL. The parallax offset function uses the iterative ray-surface convergence method of Premecz [2006], which scales each step by the height difference and the surface normal&rsquo;s Z component to attenuate on steep slopes. The shadow function incorporates height-adaptive &alpha; and the scale-invariant normalization. Together, the two functions require only the height map (in the alpha channel, with the normal map in RGB) and a small number of iterations.</p>
 
 <pre><code>#define PARALLAX_SCALE 0.04
+#define PARALLAX_BIAS -0.02
+#define PARALLAX_OFFSET_ITERATIONS 4
 #define PARALLAX_SHADOW_ITERATIONS 4
-#define ALPHA_MIN 0.5
-#define ALPHA_MAX 2.0
 
-float getParallaxShadow(sampler2D heightSampler,
-                        vec2 uv, vec3 lightDir)
+vec2 getParallaxOffset(sampler2D heightSampler, vec2 uv, vec3 eyeDir)
 {
-    vec2 rayStep = vec2(lightDir.x, -lightDir.y)
-                 * PARALLAX_SCALE;
-    float heightStep = lightDir.z * PARALLAX_SCALE;
+    vec3 view = vec3(eyeDir.x, -eyeDir.y, eyeDir.z);
+    vec3 ray = vec3(0.0);
 
-    float surfaceHeight =
-        texture2D(heightSampler, uv).a;
+    for (int i = 0; i &lt; PARALLAX_OFFSET_ITERATIONS; i++)
+    {
+        vec4 texSample = texture2D(heightSampler, uv + ray.xy);
+        float sampledHeight = texSample.a * PARALLAX_SCALE + PARALLAX_BIAS;
+        // Convergence driver: steps shrink as ray approaches the surface.
+        float heightDiff = sampledHeight - ray.z;
+        // Scale step by the surface normal's Z to attenuate on steep slopes.
+        ray += view * heightDiff * texSample.z;
+    }
 
-    // Height-adaptive exponent:
-    // valleys (h~0) -> low alpha -> far field
-    // peaks  (h~1) -> high alpha -> near field
-    float alpha = mix(ALPHA_MIN, ALPHA_MAX,
-                      surfaceHeight);
+    return ray.xy;
+}
+
+float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
+{
+    vec3 step = vec3(lightDir.x, -lightDir.y, lightDir.z) * PARALLAX_SCALE;
+    float surfaceHeight = texture2D(heightSampler, uv).a;
+
+    // Height-adaptive power-law exponent: valleys (low h) probe far for
+    // distant occluders, peaks (high h) concentrate samples near for contact shadows
+    float shadowExponent = mix(0.5, 2.0, surfaceHeight);
 
     float shadow = 0.0;
-    int N = PARALLAX_SHADOW_ITERATIONS;
-
-    for (int i = 1; i &lt;= N; i++)
+    for (int i = 1; i &lt;= PARALLAX_SHADOW_ITERATIONS; i++)
     {
-        float t = pow(float(i) / float(N),
-                      alpha);
-        float rayHeight =
-            surfaceHeight + heightStep * t;
-        float sampleHeight =
-            texture2D(heightSampler,
-                      uv + rayStep * t).a;
-        shadow = max(shadow,
-                     (sampleHeight - rayHeight)
-                     / float(i));
+        float t = pow(float(i) / float(PARALLAX_SHADOW_ITERATIONS), shadowExponent);
+        float rayHeight = surfaceHeight + step.z * t;
+        float sampleHeight = texture2D(heightSampler, uv + step.xy * t).a;
+        // 1/i weighting yields log-uniform sensitivity across the power-law family,
+        // allocating equal attention to each multiplicative decade of ray distance
+        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
-    return clamp(
-        1.0 - shadow * float(N), 0.0, 1.0);
+    // Using N as strength makes iteration count a pure quality parameter
+    return clamp(1.0 - shadow * float(PARALLAX_SHADOW_ITERATIONS), 0.0, 1.0);
 }</code></pre>
 
-<p>For completeness, the complementary parallax offset function used for view-direction displacement:</p>
-
-<pre><code>#define PARALLAX_OFFSET_ITERATIONS 4
-
-vec2 getParallaxOffset(sampler2D heightSampler,
-                       vec2 uv, vec3 eyeDir)
-{
-    vec2 viewOffset = vec2(eyeDir.x, -eyeDir.y)
-                    * PARALLAX_SCALE;
-    float currentHeight = 0.0;
-    vec2 currentOffset = vec2(0.0);
-
-    for (int i = 0;
-         i &lt; PARALLAX_OFFSET_ITERATIONS; i++)
-    {
-        float sampledHeight =
-            texture2D(heightSampler,
-                      uv + currentOffset).a;
-        float heightDiff =
-            (sampledHeight - 0.5)
-            - currentHeight;
-        float stepScale =
-            1.0 / float(i + 1);
-        currentOffset +=
-            viewOffset * heightDiff * stepScale;
-        currentHeight +=
-            heightDiff * stepScale;
-    }
-
-    return currentOffset;
-}</code></pre>
-
-<p>The shadow function requires exactly N texture fetches plus one for the surface height, identical to standard hard-shadow POM. The additional ALU cost is a single pow, a mix, and an integer division per iteration. No additional render targets, temporal accumulation, or stochastic sampling are required.</p>
+<p>The shadow function requires exactly N texture fetches plus one for the surface height, identical to standard hard-shadow POM. The offset function requires one texture fetch per iteration. The additional ALU cost over linear POM is a single pow and a mix in the shadow function. No additional render targets, temporal accumulation, or stochastic sampling are required.</p>
 
 <h2>9. Limitations and Future Work</h2>
 
