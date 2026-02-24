@@ -94,28 +94,28 @@
             <table>
                 <tr id="scale_control">
                     <td>Scale</td>
-                    <td><input type="range" min="0" max="50" value="5" id="scale"/></td>
-                    <td><span id="scale_val">0.05</span></td>
+                    <td><input type="range" min="0" max="50" value="8" id="scale"/></td>
+                    <td><span id="scale_val">0.08</span></td>
                 </tr>
                 <tr id="bias_ratio_control">
                     <td>Bias</td>
-                    <td><input type="range" min="0" max="100" value="50" id="bias_ratio"/></td>
-                    <td><span id="bias_ratio_val">50%</span></td>
+                    <td><input type="range" min="0" max="100" value="100" id="bias_ratio"/></td>
+                    <td><span id="bias_ratio_val">100%</span></td>
                 </tr>
                 <tr id="step_control">
                     <td>Steps</td>
-                    <td><input type="range" min="1" max="32" value="4" id="steps"/></td>
-                    <td><span id="steps_val">4</span></td>
+                    <td><input type="range" min="1" max="32" value="12" id="steps"/></td>
+                    <td><span id="steps_val">12</span></td>
                 </tr>
             </table>
         </div>
         <div class="control-column">
             <h3>Shadowing method</h3>
             <p>
-                <input type="radio" name="shadow_type" value="none" checked/>None <span class="cost" id="cost_shadow_none"></span><br/>
+                <input type="radio" name="shadow_type" value="none"/>None <span class="cost" id="cost_shadow_none"></span><br/>
                 <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
                 <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
-                <input type="radio" name="shadow_type" value="iterative_shadow"/>Fast approximate <span class="cost" id="cost_shadow_iterative_shadow"></span><br/>
+                <input type="radio" name="shadow_type" value="fxps" checked/>Fast approximate <span class="cost" id="cost_shadow_fxps"></span><br/>
                 <input type="radio" name="shadow_type" value="contact"/>Contact-hardening <span class="cost" id="cost_shadow_contact"></span><br/>
                 <input type="radio" name="shadow_type" value="binary"/>Binary search <span class="cost" id="cost_shadow_binary"></span><br/>
                 <input type="radio" name="shadow_type" value="cone"/>Cone-traced soft <span class="cost" id="cost_shadow_cone"></span><br/>
@@ -124,8 +124,8 @@
             <table>
                 <tr id="shadow_step_control">
                     <td>Steps</td>
-                    <td><input type="range" min="1" max="32" value="4" id="shadow_steps"/></td>
-                    <td><span id="shadow_steps_val">4</span></td>
+                    <td><input type="range" min="1" max="32" value="3" id="shadow_steps"/></td>
+                    <td><span id="shadow_steps_val">3</span></td>
                 </tr>
             </table>
         </div>

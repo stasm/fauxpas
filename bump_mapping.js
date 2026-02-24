@@ -433,7 +433,7 @@ function update_cost_labels() {
         'none':             '0 tex',
         'hard':             `\u2264${1 + S} tex`,    // early exit on first occluder
         'soft':             `${1 + S} tex`,           // no early exit
-        'iterative_shadow': `${1 + S} tex`,           // no early exit
+        'fxps':             `${1 + S} tex`,           // no early exit
         'contact':          `\u2264${1 + S} tex`,    // early exit on first occluder
         'binary':           `\u2264${S + 10} tex`,   // linear ≤S + 8 bisect + 1 final
         'cone':             `${1 + S} tex`,           // no early exit
@@ -706,7 +706,7 @@ function update_and_render() {
         switch (document.querySelector('input[name="shadow_type"]:checked').value) {
             case "hard": shadow = 1; break;
             case "soft": shadow = 2; break;
-            case "iterative_shadow": shadow = 3; break;
+            case "fxps": shadow = 3; break;
             case "contact": shadow = 4; break;
             case "binary": shadow = 5; break;
             case "cone": shadow = 6; break;
@@ -767,7 +767,7 @@ function update_and_render() {
         case "none":             shadow_samples = 0; break;
         case "hard":             shadow_samples = 1 + S; break;
         case "soft":             shadow_samples = 1 + S; break;
-        case "iterative_shadow": shadow_samples = 1 + S; break;
+        case "fxps":             shadow_samples = 1 + S; break;
         case "contact":          shadow_samples = 1 + S; break;
         case "binary":           shadow_samples = S + 10; break;
         case "cone":             shadow_samples = 1 + S; break;
