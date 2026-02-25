@@ -19,7 +19,7 @@ var SHADING_LABELS = {
 };
 var SHADOW_LABELS = {
     none: 'No Shadow', hard: 'Hard POM', soft: 'Soft POM',
-    fxps: 'FXPS', fxps_fixed: 'FXPS Fixed \u03b1', contact: 'Contact',
+    fxps: 'FXPS', haps: 'HAPS', contact: 'Contact',
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
 };
 
@@ -461,12 +461,12 @@ function shadowTypeToInt(val) {
     switch (val) {
         case "hard":       return 1;
         case "soft":       return 2;
-        case "fxps":       return 3;
+        case "haps":       return 3;
         case "contact":    return 4;
         case "binary":     return 5;
         case "cone":       return 6;
         case "relief":     return 7;
-        case "fxps_fixed": return 8;
+        case "fxps":       return 8;
         default:           return 0;
     }
 }
@@ -488,7 +488,7 @@ function update_cost_labels_from(N, S) {
         'hard':       '\u2264' + (1 + S) + ' tex',
         'soft':       (1 + S) + ' tex',
         'fxps':       (1 + S) + ' tex',
-        'fxps_fixed': (1 + S) + ' tex',
+        'haps':       (1 + S) + ' tex',
         'contact':    '\u2264' + (1 + S) + ' tex',
         'binary':     '\u2264' + (S + 10) + ' tex',
         'cone':       (1 + S) + ' tex',
@@ -528,7 +528,7 @@ function createInstance(canvasEl) {
         bias_ratio:   100,
         steps:        12,
         shadow_steps: 3,
-        fxps_alpha:   1.0,
+        fxps_alpha:   0.5,
     };
 
     var gl;
@@ -729,7 +729,7 @@ function renderInstance(inst, time) {
         case "hard":       shadow_samples = 1 + S; break;
         case "soft":       shadow_samples = 1 + S; break;
         case "fxps":       shadow_samples = 1 + S; break;
-        case "fxps_fixed": shadow_samples = 1 + S; break;
+        case "haps":       shadow_samples = 1 + S; break;
         case "contact":    shadow_samples = 1 + S; break;
         case "binary":     shadow_samples = S + 10; break;
         case "cone":       shadow_samples = 1 + S; break;
