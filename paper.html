@@ -23,45 +23,39 @@
 
 <p>We present Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s soft POM shadow technique that target the low-iteration regime. Like the original, FXPS is an empirical heuristic&mdash;not a physically based visibility computation&mdash;and is designed for contexts where visual plausibility matters more than physical accuracy. The improvements are:</p>
 
-<p><strong>Power-law sampling with 1/<em>i</em> weighting.</strong> We replace the linear step distribution with a power-law function t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup> and the accumulation with a weighted maximum using a 1/<em>i</em> weight. We show that this combination produces a shadow probe with <em>log-uniform effective sensitivity</em>&mdash;equal attention to each multiplicative decade of ray distance&mdash;a property that holds across the entire single-parameter family of power-law exponents. We analyze the family and show that &alpha; = 0.5 (the square-root) is the unique exponent that matches the solid-angle falloff of real occluders, as derived in Section 5.</p>
+<p><strong>Power-law sampling with 1/<em>i</em> weighting.</strong> We replace the linear step distribution with a power-law function t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup> and the accumulation with a weighted maximum using a 1/<em>i</em> weight. We show that this combination produces a shadow probe with <em>log-uniform effective sensitivity</em>&mdash;equal attention to each multiplicative decade of ray distance&mdash;a property that holds across the entire single-parameter family of power-law exponents. We analyze the family and show that &alpha; = 0.5 (the square-root) is the unique exponent that matches the solid-angle falloff of real occluders, as derived in Section 6.</p>
 
 <p><strong>Scale-invariant normalization.</strong> Setting the shadow strength to N (the iteration count) exactly cancels the dependence of shadow intensity on sample count, making N a pure quality knob with no secondary parameter adjustment required.</p>
 
-<h2>2. Background and Related Work</h2>
+<h2>2. Motivation</h2>
 
-<p>Self-shadowing of textured surfaces has been an active area of research for nearly four decades, with techniques spanning a broad spectrum of precomputation cost, runtime overhead, and visual fidelity. We survey the principal approaches to contextualize FXPS within the existing landscape.</p>
+<p>Modern rendering has largely moved beyond per-fragment height-field techniques. Hardware-accelerated ray tracing, mesh-based displacement via tessellation, and virtualized geometry systems such as Nanite can represent surface detail as actual geometry, with physically correct shadows emerging naturally from the scene&rsquo;s visibility solution. Physically based rendering pipelines with full material models&mdash;albedo, metallic, roughness, ambient occlusion, emissive&mdash;have become the industry standard. FXPS does not contend with any of these approaches. Where they are available, they should be preferred.</p>
 
-<h3>2.1 Horizon Mapping</h3>
+<p>However, a substantial portion of real-time rendering in 2026 operates outside this frontier. Mobile games targeting OpenGL ES 2.0/3.0 or WebGL 1.0 have no access to hardware ray tracing or tessellation. Handheld gaming systems ship with GPU budgets that preclude per-pixel ray tracing at acceptable frame rates. WebGL applications must run on the intersection of all browser GPU backends, limiting available features to the common subset. Custom and legacy game engines&mdash;particularly forward-rendering pipelines&mdash;may lack the deferred infrastructure that modern shadow techniques assume. Stylized and retro-aesthetic projects deliberately choose simpler shading models for artistic reasons. And many existing asset pipelines produce only diffuse, normal, specular, and height maps, without the full PBR material suite that modern techniques require.</p>
 
-<p>The earliest dedicated approach to bump-map self-shadowing is Max&rsquo;s horizon mapping [Max 1988], which precomputes, for each texel and for a discrete set of azimuthal directions, the elevation angle to the horizon&mdash;the highest point visible from that texel along each direction. At runtime, a fragment is shadowed if the light&rsquo;s elevation falls below the stored horizon angle. Sloan and Cohen [2000] mapped the technique to hardware-accelerated rendering, achieving interactive frame rates. Horizon mapping produces hard shadows with no per-frame ray marching, but requires substantial precomputed storage (one horizon angle per direction per texel) and cannot adapt to dynamic height fields. The shadow quality is also limited by the angular discretization of the azimuth directions.</p>
+<p>For all of these contexts, parallax occlusion mapping remains a practical tool: it adds compelling surface detail using only a height map and a few texture fetches per fragment, with no geometry amplification, no precomputed data structures, and no render-target dependencies. The self-shadowing component of POM has received comparatively little attention since Tatarchuk&rsquo;s original formulation in 2006, despite being the weakest link in the technique at low sample counts. FXPS addresses this specific gap&mdash;improving the quality of POM self-shadows in the 2&ndash;4 iteration regime where they are most needed and least served by existing work.</p>
 
-<h3>2.2 Relief Mapping and Linear Ray Marching</h3>
+<h3>2.1 Sample Budget Reallocation</h3>
+
+<p>Parallax mapping quality is highly sensitive to the number of ray-march steps: more steps mean fewer missed intersections, less swimming, and sharper silhouettes. In practice, the per-fragment texture fetch budget is the binding constraint. A typical soft-shadow POM configuration might allocate 16 samples to the view-ray parallax offset and another 16 to the shadow ray, for a total budget of 32 fetches per fragment. The shadow half of that budget produces good results at 16 samples&mdash;but reducing it to 3&ndash;4 samples with FXPS frees a large block of fetches that can be spent elsewhere.</p>
+
+<p>This creates a practical choice. One option is to ship the same visual quality at lower cost: 16 parallax samples plus 4 FXPS shadow samples is 20 fetches, a 37% reduction from the 32-fetch baseline. The other option is to reinvest the freed budget into parallax quality: 28 parallax samples plus 4 shadow samples still fits within 32 fetches, but the additional 12 parallax steps produce noticeably better surface detail&mdash;fewer silhouette artifacts, more accurate self-occlusion, and reduced texture swimming&mdash;than the original 16-step configuration could achieve. In both cases, FXPS delivers soft self-shadows that are visually comparable to the 16-sample baseline, making the shadow iteration count a net gain rather than a trade-off.</p>
+
+<p>FXPS pairs particularly well with iterative parallax techniques such as Premecz&rsquo;s [2006] convergence method, which also produces good results at very low iteration counts. Both techniques are designed for the 3&ndash;4 sample regime: the iterative offset converges on the view-ray intersection in roughly 4 steps, and FXPS produces plausible soft shadows in 4 steps. Together, they deliver a full-featured parallax mapping system&mdash;accurate surface displacement with distance-dependent soft self-shadows&mdash;in as few as 8 texture fetches per fragment.</p>
+
+<h2>3. Prior Work</h2>
+
+<p>Self-shadowing of height-mapped surfaces has been explored through several families of techniques. We survey the principal approaches to parallax occlusion mapping and its self-shadowing extensions, which form the direct lineage of FXPS.</p>
+
+<h3>3.1 Relief Mapping and Linear Ray Marching</h3>
 
 <p>Policarpo, Oliveira, and Comba [2005] introduced relief mapping, which ray-marches through a height field in tangent space using a uniform linear search followed by a binary refinement step. This was the first technique to produce per-pixel self-occlusion and self-shadowing from height maps without precomputation, supporting fully dynamic lighting. McGuire and McGuire [2005] proposed steep parallax mapping, a simplified variant with fewer iterations. Premecz [2006] presented an iterative refinement approach that converges on the ray-surface intersection by scaling each step by the remaining height difference and the surface normal&rsquo;s Z component, providing slope-aware convergence with fewer iterations than linear search. These approaches produce hard shadows: a ray either intersects the height field (shadowed) or does not (lit), with no intermediate softness. Banding artifacts from the discrete linear search are visible at low iteration counts.</p>
 
-<h3>2.3 Parallax Occlusion Mapping with Soft Shadows</h3>
+<h3>3.2 Parallax Occlusion Mapping with Soft Shadows</h3>
 
 <p>Tatarchuk [2006] extended the relief mapping framework into Parallax Occlusion Mapping (POM), adding a soft shadowing heuristic. The key innovation was replacing the binary intersection test of prior techniques with a continuous depth-difference metric: rather than asking whether the height field intersects the ray (yes or no), the technique measures <em>by how much</em> the height field exceeds the ray at each sample, producing a scalar shadow contribution. This is the fundamental reason soft POM shadows have smooth, gradual edges&mdash;at shadow boundaries, the penetration depth is genuinely small, mapping to partial shadow values through the continuous formulation. This softness is structural and holds regardless of texture filtering mode or sample count. Tatarchuk&rsquo;s technique uses a linear sampling distribution and a distance-based attenuation factor. This is the closest prior work to FXPS and shares the same structural skeleton: a loop over N samples, a depth comparison, and a distance-weighted accumulation. FXPS inherits the soft-edge property and differs in two respects: the use of a power-law (rather than linear) step distribution, and the specific 1/<em>i</em> weight (which we show produces log-uniform sensitivity).</p>
 
-<h3>2.4 Cone Step Mapping</h3>
-
-<p>Dummer [2006] introduced cone step mapping (CSM), which precomputes, for each texel, the radius of the largest empty cone that can be placed at that texel without intersecting the height field. At runtime, the ray advances by the cone radius at each step, enabling aggressive space-leaping that converges in far fewer iterations than linear search. Policarpo and Oliveira [2007] proposed relaxed cone stepping (RCS), which allows the ray to pierce the surface at most once, producing wider cones and faster convergence, followed by a binary refinement. These techniques excel at view-ray intersection finding and can be extended to shadow rays, but require a precomputed cone map (one extra channel per texel), making them unsuitable for dynamic height fields and increasing memory bandwidth.</p>
-
-<h3>2.5 Screen-Space and Hybrid Approaches</h3>
-
-<p>Screen-space contact shadows, widely adopted in modern game engines, ray-march against the depth buffer to detect short-range occlusion that shadow maps miss. These operate at the scene geometry scale and complement shadow maps for macro-scale shadows. Bend Studio&rsquo;s screen-space shadow technique [SIGGRAPH 2023] demonstrated high-quality results for sun shadows in production titles. With the advent of hardware-accelerated ray tracing, hybrid approaches that combine rasterized shadow maps with ray-traced shadows have emerged [AMD FidelityFX Hybrid Shadows]. These operate at the scene level and are orthogonal to FXPS, which addresses self-shadowing within a single height-mapped surface.</p>
-
-<h3>2.6 Radiosity Normal Mapping</h3>
-
-<p>Green [2007] presented efficient self-shadowed radiosity normal mapping at Valve, which precomputes directional occlusion for height-field texels and stores it as a modification to the radiosity normal map basis. This technique is elegant and fast at runtime (requiring no additional per-frame ray marching) but is limited to static height fields and baked lighting configurations.</p>
-
-<h3>2.7 Positioning of FXPS</h3>
-
-<p>FXPS is an empirical heuristic, not a physically based visibility computation. It does not model penumbra geometry, light source extent, or true height-field occlusion. Its soft edges are inherited from the continuous depth-difference formulation (Section 2.3), and its shadow boundaries are approximations that would not match a ground-truth ray tracer at any sample count.</p>
-
-<p>This is by design. FXPS targets the bottom end of the cost spectrum: stylized and mobile rendering, legacy forward pipelines, performance-constrained material layers, and any context where 2&ndash;4 texture fetches is the entire shadow budget. In this regime, the relevant comparison is against Tatarchuk&rsquo;s original linear soft shadows at the same sample count, as well as against simpler alternatives&mdash;hard POM shadows, N&middot;L darkening, or no self-shadowing at all. Against these baselines, FXPS offers a meaningful visual improvement: distance-dependent shadow opacity and spatially soft edges inherited from the continuous depth-difference formulation, all for the same number of texture fetches. It requires no precomputed data structures (unlike horizon mapping, cone step mapping, or radiosity normal mapping), no temporal accumulation, and no additional render targets.</p>
-
-<h2>3. Power-Law Sampling and the 1/<em>i</em> Weight</h2>
+<h2>4. Power-Law Sampling and the 1/<em>i</em> Weight</h2>
 
 <p>Tatarchuk&rsquo;s soft POM shadows use a linear distribution t(<em>i</em>) = <em>i</em>/<em>N</em>, spacing samples uniformly along the ray. We generalize this to a power-law family parameterized by exponent &alpha;:</p>
 
@@ -92,7 +86,7 @@
 
 <p>[<a href="appendix.html#fig1">Figure 1</a>: Effective sensitivity &rho;(t) and sensitivity per log-decade for each power-law exponent.]</p>
 
-<h3>3.1 Distance-Attenuation Interpretation</h3>
+<h3>4.1 Distance-Attenuation Interpretation</h3>
 
 <p>While the log-uniform invariant holds for any &alpha;, the 1/<em>i</em> weight maps to a <em>different distance-attenuation curve</em> depending on the exponent. Since <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, the weight expressed in ray-space is:</p>
 
@@ -125,17 +119,17 @@
 
 <p>The 1/<em>i</em> weight is the unique index-space ramp that, when projected through any power-law step function, yields log-uniform sensitivity in the continuous limit. It is a principled choice of weight&mdash;but it is a fixed formula applied uniformly, and the apparent &ldquo;adaptation&rdquo; to different &alpha; regimes is entirely a consequence of the projection geometry.</p>
 
-<h3>3.2 Soft Shadow Edges</h3>
+<h3>4.2 Soft Shadow Edges</h3>
 
-<p>Both FXPS and Tatarchuk&rsquo;s original technique produce spatially soft shadow edges, owing to the continuous depth-difference formulation they share (Section 2.3). The output clamp(1 &minus; <em>N</em> &middot; <em>S</em>, 0, 1) is a linear ramp, not a step function. At a shadow boundary, there is always a spatial band of fragments where the occluder just barely rises above the ray&mdash;a small positive depth difference that maps to a partial shadow value. This softness is structural: it is a property of the formulation itself and holds regardless of texture filtering mode. The width of the soft transition zone depends on the height-field gradient and the light angle, but not on occluder distance or light source extent&mdash;a distinction from true penumbrae explored further in Section 8.</p>
+<p>Both FXPS and Tatarchuk&rsquo;s original technique produce spatially soft shadow edges, owing to the continuous depth-difference formulation they share (Section 3.2). The output clamp(1 &minus; <em>N</em> &middot; <em>S</em>, 0, 1) is a linear ramp, not a step function. At a shadow boundary, there is always a spatial band of fragments where the occluder just barely rises above the ray&mdash;a small positive depth difference that maps to a partial shadow value. This softness is structural: it is a property of the formulation itself and holds regardless of texture filtering mode. The width of the soft transition zone depends on the height-field gradient and the light angle, but not on occluder distance or light source extent&mdash;a distinction from true penumbrae explored further in Section 9.</p>
 
-<h3>3.3 The Continuous-Discrete Gap</h3>
+<h3>4.3 The Continuous-Discrete Gap</h3>
 
 <p>An important caveat: the log-uniform property is a statement about the continuous limit. At very low iteration counts, the discrete sample placement dominates behavior. With &alpha; = 0.5 and N = 4, the first sample falls at t = 0.50&mdash;the entire [0, 0.5) range is unsampled. The four samples have weights 1, 1/2, 1/3, 1/4, forming a monotonically decreasing discrete ramp over the [0.5, 1.0] band. The visual result at low N is driven as much by this discrete weight gradient as by the continuous log-uniform property.</p>
 
-<p>The continuous analysis nevertheless justifies the <em>choice</em> of 1/<em>i</em> as the weighting function: it is the unique weight that produces log-uniform sensitivity in the limit, and it provides a principled starting point from which the discrete behavior inherits its favorable gradient. The question becomes: which value of &alpha; makes the best use of these limited discrete samples? Section 5 addresses this question.</p>
+<p>The continuous analysis nevertheless justifies the <em>choice</em> of 1/<em>i</em> as the weighting function: it is the unique weight that produces log-uniform sensitivity in the limit, and it provides a principled starting point from which the discrete behavior inherits its favorable gradient. The question becomes: which value of &alpha; makes the best use of these limited discrete samples? Section 6 addresses this question.</p>
 
-<h2>4. Scale-Invariant Normalization</h2>
+<h2>5. Scale-Invariant Normalization</h2>
 
 <p>For an occluder at fixed position <em>t</em>* along the ray, the nearest sample index scales as <em>i</em>* &asymp; <em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>. The raw shadow contribution is:</p>
 
@@ -151,11 +145,11 @@
 
 <p>Crucially, this result holds for <em>any</em> &alpha; and <em>any</em> N. It is an exact discrete property, not an asymptotic one, which makes it robust in the low-iteration regime where the technique operates.</p>
 
-<h2>5. Choosing the Exponent</h2>
+<h2>6. Choosing the Exponent</h2>
 
 <p>The analysis so far establishes a family of shadow probes parameterized by &alpha;, all sharing the log-uniform invariant and the strength = N normalization. The question remains: what value of &alpha; should be used? We show that &alpha; = 0.5 can be derived from first principles by requiring the algorithm&rsquo;s distance-attenuation curve to match the geometric falloff of real occluders.</p>
 
-<h3>5.1 Derivation from Solid-Angle Falloff</h3>
+<h3>6.1 Derivation from Solid-Angle Falloff</h3>
 
 <p>In a realistic lighting environment with ambient fill, indirect bounce, and subsurface scattering, the perceptual intensity of a shadow at a receiver point depends on the fraction of the visible hemisphere that the occluder blocks. For an occluder with projected cross-sectional area <em>A</em> at distance <em>d</em> from the receiver, the subtended solid angle is:</p>
 
@@ -165,7 +159,7 @@
 
 <p>&nbsp;&nbsp;&nbsp;&nbsp;Attenuation &prop; <em>t</em><sup>&minus;2</sup></p>
 
-<p>The FXPS algorithm applies a weight of 1/<em>i</em> at each sample. From Section 3, the sample position is defined by the power-law function <em>t</em>(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>. Inverting gives the sample index as a function of distance: <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>. Substituting into the weight function gives the effective distance-attenuation curve in ray-space:</p>
+<p>The FXPS algorithm applies a weight of 1/<em>i</em> at each sample. From Section 4, the sample position is defined by the power-law function <em>t</em>(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>. Inverting gives the sample index as a function of distance: <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>. Substituting into the weight function gives the effective distance-attenuation curve in ray-space:</p>
 
 <p>&nbsp;&nbsp;&nbsp;&nbsp;1/<em>i</em> = (1/<em>N</em>) &middot; <em>t</em><sup>&minus;1/&alpha;</sup></p>
 
@@ -175,7 +169,7 @@
 
 <p>gives &alpha; = 0.5. This is the unique exponent that maps the 1/<em>i</em> weight to a physically grounded <em>t</em><sup>&minus;2</sup> geometric attenuation. Lower values (e.g. &alpha; = 0.25 &rarr; <em>t</em><sup>&minus;4</sup>) over-attenuate with distance; higher values (e.g. &alpha; = 1.0 &rarr; <em>t</em><sup>&minus;1</sup>) under-attenuate. Neither matches the geometry of three-dimensional space.</p>
 
-<h3>5.2 Validity of the Approximation</h3>
+<h3>6.2 Validity of the Approximation</h3>
 
 <p>The formula &Omega; &asymp; <em>A</em>/<em>d</em><sup>2</sup> assumes the occluder is small relative to the distance. The exact solid angle subtended by an arbitrary surface <em>S</em> is given by the surface integral:</p>
 
@@ -187,7 +181,7 @@
 
 <p>When <em>d</em> &Gt; <em>R</em>, the Taylor expansion recovers &pi;<em>R</em><sup>2</sup>/<em>d</em><sup>2</sup> = <em>A</em>/<em>d</em><sup>2</sup>. In the near field (<em>d</em> &asymp; <em>R</em>), the relationship saturates as the occluder subtends a large fraction of the hemisphere. &alpha; = 0.5 conveniently avoids this regime: at N = 4, the first sample falls at <em>t</em> = 0.50, where the ray has already risen to half its total excursion. The far-field approximation is most accurate precisely where the algorithm samples.</p>
 
-<h3>5.3 Supporting Empirical Evidence</h3>
+<h3>6.3 Supporting Empirical Evidence</h3>
 
 <p>Beyond the geometric derivation, several practical properties reinforce the choice of &alpha; = 0.5.</p>
 
@@ -197,11 +191,11 @@
 
 <p><strong>Dense sampling where occluders reside.</strong> At typical POM scales (PARALLAX_SCALE &asymp; 0.04), the entire shadow ray is physically short. Most real shadow-casting geometry&mdash;brick edges, ridge lines, surface ledges&mdash;creates occlusion at intermediate distances along the ray, not at the extreme near field. Four samples in [0.5, 1.0] provide dense, well-separated coverage of this zone. Higher &alpha; spreads the same four samples across [0.06, 1.0], giving sparse coverage everywhere and dense coverage nowhere.</p>
 
-<h3>5.4 Note on Height-Adaptive &alpha;</h3>
+<h3>6.4 Note on Height-Adaptive &alpha;</h3>
 
 <p>We also explored a height-adaptive variant in which the exponent varies per-fragment: &alpha; = mix(&alpha;_min, &alpha;_max, <em>h</em>), where <em>h</em> is the surface height. The geometric motivation was that peaks face nearby occluders (calling for high &alpha;) while valleys face distant ones (calling for low &alpha;). While theoretically appealing, this approach did not improve results in practice. We believe this is because the fragments that receive the most visually important shadows are at mid-to-low elevation&mdash;below the features that cast shadows on them&mdash;and these fragments are precisely the ones where the adaptive scheme assigns low &alpha;, which is already the best choice regardless. Meanwhile, peak fragments receive high &alpha; but are typically shadow <em>casters</em> rather than shadow <em>receivers</em>, so the adaptive sampling is spent on fragments that are usually fully lit. Additionally, valleys can have nearby overhangs just as easily as distant rims, and the height-to-occluder-distance correlation the adaptive scheme assumes does not hold for these visually important cases. We recommend using a fixed &alpha; = 0.5 as the default.</p>
 
-<h2>6. Notes on PBR Integration</h2>
+<h2>7. Notes on PBR Integration</h2>
 
 <p>FXPS is designed as an empirical technique for stylized and performance-constrained rendering, where it can serve as a simple multiplicative darkening factor applied to the final lighting. However, it can also be inserted into a physically based pipeline if desired. This section provides guidance for that use case, characterizing how FXPS interacts with the self-shadowing mechanisms already present in a standard PBR lighting equation.</p>
 
@@ -211,7 +205,7 @@
 
 <p>where <em>f</em>_r is the BRDF, <em>L</em>_i is the incident radiance from the light, <strong>n&prime;</strong> is the perturbed (normal-mapped) surface normal, and <em>V</em> is a geometric visibility term. If FXPS is used within such a pipeline, it provides a replacement for <em>V</em>. The following subsections characterize how this interacts with the other self-shadowing mechanisms in the equation.</p>
 
-<h3>6.1 Multi-Scale Shadow Decomposition</h3>
+<h3>7.1 Multi-Scale Shadow Decomposition</h3>
 
 <p>A height-mapped PBR surface contains three distinct spatial scales of self-occlusion, each handled by a different term in the rendering equation:</p>
 
@@ -229,7 +223,7 @@
 
 <p>This term operates at the height-map texel scale (millimeters to centimeters)&mdash;the same frequency as the normal map, but capturing a fundamentally different phenomenon: whether a distant feature <em>occludes</em> the light, rather than whether the local surface <em>faces</em> it.</p>
 
-<h3>6.2 The Complete Reflectance Equation</h3>
+<h3>7.2 The Complete Reflectance Equation</h3>
 
 <p>Substituting the multi-scale terms, the full direct lighting equation for a single light becomes:</p>
 
@@ -239,7 +233,7 @@
 
 <p>The multiplicative decomposition is physically consistent because <em>V</em>_FXPS modulates <em>incoming radiance before it reaches the BRDF</em>. It is not a modification of the reflectance function itself, but of the light transport. The BRDF&rsquo;s internal <em>G</em> term then further attenuates based on microfacet statistics, operating on the already-modulated irradiance. This is consistent with the rendering equation&rsquo;s structure, where visibility and reflectance are separable.</p>
 
-<h3>6.3 Scale Separation and Double-Counting</h3>
+<h3>7.3 Scale Separation and Double-Counting</h3>
 
 <p>The multiplicative composition of <em>G</em>, &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle;, and <em>V</em>_FXPS is physically justified when they operate at non-overlapping spatial frequencies. In practice, this assumption holds well:</p>
 
@@ -249,13 +243,13 @@
 
 <p>The one scenario where mild double-counting could arise is if the height map contains features at a scale comparable to the microfacet roughness. In such a case, both <em>G</em> and <em>V</em>_FXPS would attenuate for the same geometric cause. In practice, this is extremely unlikely in real-time rendering pipelines: height maps are authored at a resolution of hundreds of texels per meter, while roughness models sub-micron geometry. Nonetheless, artists should be aware that extremely rough materials (roughness &gt; 0.9) combined with very high-frequency height maps could in principle produce slightly over-darkened results.</p>
 
-<h3>6.4 Energy Conservation</h3>
+<h3>7.4 Energy Conservation</h3>
 
 <p><em>V</em>_FXPS is bounded to [0, 1] and is purely attenuative&mdash;it can reduce incoming radiance but never amplify it. This guarantees that the technique cannot violate energy conservation. The total outgoing radiance at any fragment is always less than or equal to the radiance that would be computed without the visibility term. In the absence of any occluders, <em>V</em>_FXPS evaluates to exactly 1.0, reducing to the unshadowed case.</p>
 
 <p>Note that <em>V</em>_FXPS does not account for indirect illumination or interreflection within the height field. Light blocked by the visibility term is simply removed, not redistributed. In pipelines that include screen-space or probe-based global illumination, the ambient or indirect term should <em>not</em> be modulated by <em>V</em>_FXPS, as the indirect lighting has already been attenuated through its own visibility evaluation. The FXPS visibility term should be applied only to direct light contributions.</p>
 
-<h2>7. Implementation</h2>
+<h2>8. Implementation</h2>
 
 <p>The complete implementation in GLSL. The parallax offset function uses the iterative ray-surface convergence method of Premecz [2006], which scales each step by the height difference and the surface normal&rsquo;s Z component to attenuate on steep slopes. The shadow function uses the square-root distribution (&alpha; = 0.5) with the scale-invariant normalization. Together, the two functions require only the height map (in the alpha channel, with the normal map in RGB) and a small number of iterations.</p>
 
@@ -305,9 +299,9 @@ float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
 
 <p>The shadow function requires exactly N texture fetches plus one for the surface height, identical to standard hard-shadow POM. The offset function requires one texture fetch per iteration. The additional ALU cost over linear POM is a single sqrt in the shadow function. No additional render targets, temporal accumulation, or stochastic sampling are required.</p>
 
-<h2>8. Limitations and Future Work</h2>
+<h2>9. Limitations and Future Work</h2>
 
-<p>The derivation of &alpha; = 0.5 from solid-angle falloff (Section 5.1) relies on the far-field approximation &Omega; &asymp; <em>A</em>/<em>d</em><sup>2</sup>, which assumes the occluder is small relative to its distance from the receiver. For height fields with very large-scale features where this assumption breaks down, other values of &alpha; may produce better results. Additionally, the derivation assumes a realistic multi-source lighting environment where shadow intensity correlates with subtended solid angle; in scenes lit by a single infinitely distant directional light with no ambient contribution, the physical motivation is weaker. A systematic evaluation across a wider range of height-map types and lighting configurations would clarify the boundaries of applicability.</p>
+<p>The derivation of &alpha; = 0.5 from solid-angle falloff (Section 6.1) relies on the far-field approximation &Omega; &asymp; <em>A</em>/<em>d</em><sup>2</sup>, which assumes the occluder is small relative to its distance from the receiver. For height fields with very large-scale features where this assumption breaks down, other values of &alpha; may produce better results. Additionally, the derivation assumes a realistic multi-source lighting environment where shadow intensity correlates with subtended solid angle; in scenes lit by a single infinitely distant directional light with no ambient contribution, the physical motivation is weaker. A systematic evaluation across a wider range of height-map types and lighting configurations would clarify the boundaries of applicability.</p>
 
 <p>At N = 2, the technique still produces usable results with subtle banding, but the probe has very limited spatial discrimination. Performance profiling across GPU architectures, particularly regarding texture cache coherence of the non-linear sampling pattern, would clarify the practical cost-quality trade-off.</p>
 
@@ -315,7 +309,7 @@ float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
 
 <p>Future work could investigate extending the 1/<em>i</em> invariant to non-power-law step functions with appropriately derived weights, or combining FXPS with screen-space techniques that could provide the missing distance-dependent edge widening.</p>
 
-<h2>9. Conclusion</h2>
+<h2>10. Conclusion</h2>
 
 <p>We have presented Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s [2006] soft POM shadow technique targeting the low-iteration regime. Like the original, FXPS is an empirical heuristic that does not aspire to physical accuracy; it is designed for the bottom of the cost spectrum&mdash;stylized rendering, mobile GPUs, legacy forward pipelines, and any context where visual plausibility at 2&ndash;4 texture fetches matters more than ground-truth visibility.</p>
 
