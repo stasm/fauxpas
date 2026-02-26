@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Figures &mdash; Fast Approximate Parallax Shadows</title>
+</head>
+<body>
+
+<p><a href="paper.html">&larr; Back to paper</a></p>
+
+<h1>Figures</h1>
+<p><em>Fast Approximate Parallax Shadows</em></p>
+
+<canvas id="fig1" width="700" height="380"></canvas>
+<p><em>Figure 1.</em> Left: effective sensitivity &rho;(t) = 1/(&alpha;t) for different power-law exponents. All curves are the same 1/t shape, scaled by 1/&alpha;. Right: sensitivity per log-decade &rho;(t)&middot;t = 1/&alpha;, a constant for each &alpha;. This is the log-uniform invariant.</p>
+
+<canvas id="fig2" width="700" height="420"></canvas>
+<p><em>Figure 2.</em> The same 1/i weight projected into ray-space at different &alpha;. At &alpha; = 0.5 (blue), the curve is steep&mdash;near-field positions receive far more weight than far-field. At &alpha; = 2.0 (amber), the curve is nearly flat. All curves converge to 1 at t = 1.</p>
+
+<canvas id="fig3" width="700" height="600"></canvas>
+<p><em>Figure 3.</em> Discrete sample placement and weights for N = 4 at each &alpha;. Bar height shows the 1/i weight; bar position shows where that sample falls on the ray. The red shaded region is unsampled. As &alpha; increases, the first sample moves toward the ray origin and the unsampled gap shrinks.</p>
+
+<canvas id="fig4" width="700" height="340"></canvas>
+<p><em>Figure 4.</em> Cross-section of a height field with shadow rays cast from three fragments (A, B, C) toward the light. At each sample point along the ray, the depth difference &Delta;H = H_sample &minus; H_ray is measured. Fragment A is deep in shadow (large &Delta;H); fragment C is near the shadow boundary (small &Delta;H, partial shadow); fragment B is fully lit (&Delta;H &le; 0 everywhere). The continuous depth-difference formulation maps these to a smooth gradient from shadowed to lit&mdash;no binary threshold is involved.</p>
+
+<canvas id="fig5" width="700" height="340"></canvas>
+<p><em>Figure 5.</em> Distance attenuation reinforces contact hardening. The same depth difference &Delta;H at a near sample (i = 1, weight 1) produces a much stronger shadow contribution than at a far sample (i = 4, weight 1/4). Combined with the &alpha; = 0.5 square-root distribution, the effective attenuation follows t<sup>&minus;2</sup> in ray-space, matching the solid-angle falloff of real occluders. A nearby occluder casts a dark, well-defined shadow; a distant one of the same height produces only subtle darkening.</p>
+
+<script>
+// ─── shared helpers ──────────────────────────────────────────────────────────
+
+const COLORS = {
+  a05: '#4878cf',   // blue
+  a10: '#3aaa35',   // green
+  a20: '#e08020',   // amber
+  a30: '#d63030',   // red
+};
+
+function drawAxes(ctx, lx, rx, by, ty, xmin, xmax, ymin, ymax,
+                  xticks, yticks, xlabel, ylabel, title) {
+  ctx.save();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1;
+
+  // border
+  ctx.strokeRect(lx, ty, rx - lx, by - ty);
+
+  const xs = t => lx + (t - xmin) / (xmax - xmin) * (rx - lx);
+  const ys = v => by - (v - ymin) / (ymax - ymin) * (by - ty);
+
+  ctx.fillStyle = '#000';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+
+  // x ticks
+  for (const v of xticks) {
+    const x = xs(v);
+    ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by + 5); ctx.stroke();
+    ctx.fillText(v.toFixed(v === Math.round(v) ? 2 : 2), x, by + 16);
+    // grid
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x, by); ctx.stroke();
+    ctx.restore();
+  }
+  // x label
+  ctx.fillText(xlabel, (lx + rx) / 2, by + 30);
+
+  // y ticks
+  ctx.textAlign = 'right';
+  for (const v of yticks) {
+    const y = ys(v);
+    ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(lx - 5, y); ctx.stroke();
+    ctx.fillText(v % 1 === 0 ? v.toFixed(1) : v.toFixed(1), lx - 8, y + 4);
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(rx, y); ctx.stroke();
+    ctx.restore();
+  }
+
+  // y label (rotated)
+  ctx.save();
+  ctx.translate(lx - 40, (ty + by) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center';
+  ctx.fillText(ylabel, 0, 0);
+  ctx.restore();
+
+  // title
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillText(title, (lx + rx) / 2, ty - 8);
+  ctx.restore();
+
+  return { xs, ys };
+}
+
+function plotCurve(ctx, xs, ys, fn, xmin, xmax, steps, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let first = true;
+  for (let k = 0; k <= steps; k++) {
+    const t = xmin + (xmax - xmin) * k / steps;
+    const v = fn(t);
+    if (!isFinite(v)) { first = true; continue; }
+    if (first) { ctx.moveTo(xs(t), ys(v)); first = false; }
+    else ctx.lineTo(xs(t), ys(v));
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function legend(ctx, x, y, items, fontSize) {
+  ctx.save();
+  ctx.font = (fontSize || 11) + 'px sans-serif';
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 0.5;
+  const lw = 20, pad = 6, lineH = 16;
+  const w = 155, h = items.length * lineH + pad * 2;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  items.forEach(([color, label], i) => {
+    const ly = y + pad + lineH * i + lineH / 2;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x + pad, ly); ctx.lineTo(x + pad + lw, ly); ctx.stroke();
+    ctx.fillStyle = '#000'; ctx.lineWidth = 1;
+    ctx.textAlign = 'left';
+    ctx.fillText(label, x + pad + lw + 5, ly + 4);
+  });
+  ctx.restore();
+}
+
+// ─── Figure 1 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig1');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // main title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+
+  const half = W / 2;
+
+  // LEFT PLOT: rho(t) = 1/(alpha*t)
+  const lx1 = 55, rx1 = half - 20;
+  const lx2 = half + 40, rx2 = W - 20;
+  const by = H - 40, ty = 30;
+  const xticks = [0.00, 0.25, 0.50, 0.75, 1.00];
+  const yticks1 = [0, 2, 4, 6, 8, 10, 12, 14];
+  const yticks2 = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
+
+  const {xs: xs1, ys: ys1} = drawAxes(ctx, lx1, rx1, by, ty,
+    0, 1, 0, 15, xticks, yticks1,
+    'Ray distance  t', 'ρ(t) = 1/(αt)', 'Effective Sensitivity');
+
+  const {xs: xs2, ys: ys2} = drawAxes(ctx, lx2, rx2, by, ty,
+    0, 1, 0, 3.0, xticks, yticks2,
+    'Ray distance  t', 'ρ(t)·t = 1/α', 'Sensitivity per Log-Decade');
+
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+
+  alphas.forEach((a, i) => {
+    // clip left plot to ymax=15
+    ctx.save();
+    ctx.rect(lx1, ty, rx1 - lx1, by - ty);
+    ctx.clip();
+    plotCurve(ctx, xs1, ys1, t => 1 / (a * t), 0.001, 1, 400, cols[i]);
+    ctx.restore();
+
+    // right plot: flat lines at 1/alpha
+    ctx.save();
+    ctx.strokeStyle = cols[i]; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(xs2(0), ys2(1/a));
+    ctx.lineTo(xs2(1), ys2(1/a));
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  legend(ctx, lx1 + 5, ty + 5, [
+    [COLORS.a05, 'α = 0.5 (sqrt)'],
+    [COLORS.a10, 'α = 1.0 (linear)'],
+    [COLORS.a20, 'α = 2.0 (quadratic)'],
+    [COLORS.a30, 'α = 3.0 (cubic)'],
+  ]);
+
+  legend(ctx, lx2 + 5, ty + 5, [
+    [COLORS.a05, '1/α = 2.0'],
+    [COLORS.a10, '1/α = 1.0'],
+    [COLORS.a20, '1/α = 0.5'],
+    [COLORS.a30, '1/α = 0.3'],
+  ]);
+})();
+
+// ─── Figure 2 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig2');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  const lx = 65, rx = W - 20, by = H - 40, ty = 35;
+  const xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+  const yticks = [0, 2.5, 5.0, 7.5, 10.0, 12.5, 15.0, 17.5, 20.0];
+
+  const {xs, ys} = drawAxes(ctx, lx, rx, by, ty,
+    0, 1, 0, 20,
+    xticks, yticks,
+    'Ray distance  t',
+    'Relative weight  w(t) / w(1)',
+    'Distance-Attenuation Curves in Ray-Space');
+
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+
+  alphas.forEach((a, i) => {
+    // w(t) = t^(-1/a), w(1) = 1, so ratio = t^(-1/a)
+    ctx.save();
+    ctx.rect(lx, ty, rx - lx, by - ty);
+    ctx.clip();
+    plotCurve(ctx, xs, ys, t => Math.pow(t, -1/a), 0.002, 1, 500, cols[i]);
+    ctx.restore();
+  });
+
+  // annotations
+  ctx.save();
+  ctx.fillStyle = COLORS.a05;
+  ctx.font = 'italic 11px sans-serif';
+  ctx.fillText('Steep falloff', xs(0.08) + 65, ys(16));
+  ctx.fillText('(aggressive)', xs(0.08) + 65, ys(16) + 14);
+  ctx.fillStyle = COLORS.a20;
+  ctx.fillText('Gentle falloff', xs(0.07) + 5, ys(5.5));
+  ctx.restore();
+
+  legend(ctx, rx - 165, ty + 5, [
+    [COLORS.a05, 'α = 0.5 (sqrt)'],
+    [COLORS.a10, 'α = 1.0 (linear)'],
+    [COLORS.a20, 'α = 2.0 (quadratic)'],
+    [COLORS.a30, 'α = 3.0 (cubic)'],
+  ]);
+})();
+
+// ─── Figure 3 ─────────────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig3');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  const N = 4;
+  const alphas = [0.5, 1.0, 2.0, 3.0];
+  const cols   = [COLORS.a05, COLORS.a10, COLORS.a20, COLORS.a30];
+  const names  = ['α = 0.5 (sqrt)', 'α = 1.0 (linear)', 'α = 2.0 (quadratic)', 'α = 3.0 (cubic)'];
+
+  const lx = 55, rx = W - 15;
+  const totalH = H - 10;
+  const panelH = totalH / 4;
+  const marginTop = 20, marginBot = 28;
+  const xticks = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0];
+
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Sample Placement and Weights at N = 4', W / 2, 14);
+
+  alphas.forEach((a, pi) => {
+    const panelY = 18 + pi * panelH;
+    const ty = panelY + marginTop;
+    const by = panelY + panelH - marginBot;
+
+    const ymin = 0, ymax = 1.2;
+    const {xs, ys} = drawAxes(ctx, lx, rx, by, ty,
+      0, 1, ymin, ymax,
+      xticks, [0.0, 0.5, 1.0],
+      pi === 3 ? 'Ray distance  t' : '',
+      'Weight', '');
+
+    // unsampled region: from 0 to t_1
+    const t1 = Math.pow(1 / N, a);
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,180,180,0.35)';
+    ctx.fillRect(xs(0), ty, xs(t1) - xs(0), by - ty);
+    ctx.restore();
+
+    // label "unsampled"
+    ctx.save();
+    ctx.fillStyle = '#c44';
+    ctx.font = 'italic 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('unsampled', xs(0.01), (ty + by) / 2 - 4);
+    ctx.restore();
+
+    // bars
+    for (let i = 1; i <= N; i++) {
+      const t = Math.pow(i / N, a);
+      const w = 1 / i;
+      const bw = (rx - lx) * 0.018;
+      const bx = xs(t) - bw / 2;
+      const bh = (by - ty) * w / (ymax - ymin);
+
+      ctx.save();
+      ctx.fillStyle = cols[pi];
+      ctx.fillRect(bx, by - bh, bw, bh);
+      ctx.restore();
+
+      // weight label
+      const label = i === 1 ? '1' : `1/${i}`;
+      ctx.save();
+      ctx.fillStyle = '#000';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, xs(t), by - bh - 4);
+      ctx.restore();
+    }
+
+    // alpha label (top right)
+    ctx.save();
+    ctx.fillStyle = cols[pi];
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(names[pi], rx - 4, ty + 14);
+    ctx.restore();
+  });
+})();
+
+// ─── Figure 4: Depth-difference softness ─────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig4');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  // layout
+  const lx = 50, rx = W - 20, by = H - 50, ty = 30;
+  const plotW = rx - lx, plotH = by - ty;
+
+  // height field: a smooth terrain with a prominent ridge
+  function terrain(x) {
+    // x in [0,1], returns height in [0,1]
+    const ridge = 0.72 * Math.exp(-Math.pow((x - 0.45) * 6, 2));
+    const bump = 0.15 * Math.exp(-Math.pow((x - 0.75) * 10, 2));
+    const base = 0.08 + 0.06 * Math.sin(x * 12);
+    return Math.min(ridge + bump + base, 1.0);
+  }
+
+  const xs = x => lx + x * plotW;
+  const ys = h => by - h * plotH;
+
+  // title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Depth-Difference Produces Soft Shadow Edges', W / 2, 16);
+
+  // draw terrain fill
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(xs(0), by);
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.lineTo(xs(1), by);
+  ctx.closePath();
+  ctx.fillStyle = '#e8dcc8';
+  ctx.fill();
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    if (k === 0) ctx.moveTo(xs(x), ys(terrain(x)));
+    else ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // light direction (from upper-right, shallow angle)
+  const lightAngle = Math.PI * 0.18; // ~32 degrees from +x, pointing right-upward
+  const lightDx = Math.cos(lightAngle);
+  const lightDy = Math.sin(lightAngle);
+
+  // four fragments on flat ground to the left of the ridge, varying distance
+  const fragments = [
+    { label: 'A', x: 0.20, color: '#c44',    desc: 'Flat ground, closest to ridge' },
+    { label: 'B', x: 0.13, color: '#d89020',  desc: 'Flat ground, mid distance' },
+    { label: 'C', x: 0.07, color: '#3a8a35',  desc: 'Flat ground, far' },
+    { label: 'D', x: 0.02, color: '#3377cc',  desc: 'Flat ground, furthest' },
+  ];
+
+  const N = 4;
+  const alpha = 0.5;
+  const rayLen = 0.40; // length of ray in x-space
+
+  fragments.forEach(frag => {
+    const fx = frag.x;
+    const fh = terrain(fx);
+
+    // ray from fragment toward light
+    // in 2D cross-section: ray goes in lightDir from (fx, fh)
+    const rayEndX = fx + lightDx * rayLen;
+    const rayEndH = fh + lightDy * rayLen;
+
+    // draw ray line
+    ctx.save();
+    ctx.strokeStyle = frag.color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(xs(fx), ys(fh));
+    ctx.lineTo(xs(rayEndX), ys(rayEndH));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // sample points along ray (sqrt distribution) — find winner (max dh/i) first
+    let maxDH = 0, winner = null;
+    const samples = [];
+    for (let i = 1; i <= N; i++) {
+      const t = Math.sqrt(i / N);
+      const sx = fx + lightDx * rayLen * t;
+      const sh = fh + lightDy * rayLen * t;
+      const terrainH = terrain(sx);
+      const dh = terrainH - sh;
+      samples.push({ sx, sh, terrainH, dh });
+      if (dh > 0 && dh / i > maxDH) {
+        maxDH = dh / i;
+        winner = samples[samples.length - 1];
+      }
+    }
+
+    // draw sample dots
+    for (const s of samples) {
+      ctx.save();
+      ctx.fillStyle = frag.color;
+      ctx.beginPath();
+      ctx.arc(xs(s.sx), ys(s.sh), 3, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // draw single ΔH arrow for the winning sample
+    if (winner && winner.dh > 0.005) {
+      ctx.save();
+      ctx.strokeStyle = frag.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(xs(winner.sx), ys(winner.sh));
+      ctx.lineTo(xs(winner.sx), ys(winner.terrainH));
+      ctx.stroke();
+
+      const ay = ys(winner.terrainH);
+      ctx.beginPath();
+      ctx.moveTo(xs(winner.sx) - 3, ay + 5);
+      ctx.lineTo(xs(winner.sx), ay);
+      ctx.lineTo(xs(winner.sx) + 3, ay + 5);
+      ctx.stroke();
+
+      ctx.fillStyle = frag.color;
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('ΔH', xs(winner.sx) + 4, (ys(winner.sh) + ys(winner.terrainH)) / 2 + 3);
+      ctx.restore();
+    }
+
+    // fragment marker
+    ctx.save();
+    ctx.fillStyle = frag.color;
+    ctx.beginPath();
+    ctx.arc(xs(fx), ys(fh), 5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // label below
+    ctx.fillStyle = frag.color;
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(frag.label, xs(fx), ys(fh) + 16);
+
+    // shadow value annotation
+    const shadowVal = Math.min(1, N * maxDH);
+    const visVal = Math.max(0, 1 - shadowVal);
+    ctx.font = '10px sans-serif';
+    ctx.fillText('V = ' + visVal.toFixed(2), xs(fx), ys(fh) + 28);
+    ctx.restore();
+  });
+
+  // light direction arrow (top right)
+  ctx.save();
+  const arrowX = rx - 80, arrowY = ty + 20;
+  ctx.strokeStyle = '#cc8800';
+  ctx.fillStyle = '#cc8800';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX + lightDx * 40, arrowY - lightDy * 40);
+  ctx.stroke();
+  // arrowhead
+  const ax = arrowX + lightDx * 40, ay2 = arrowY - lightDy * 40;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay2);
+  ctx.lineTo(ax - lightDx * 8 - lightDy * 4, ay2 + lightDy * 8 - lightDx * 4);
+  ctx.lineTo(ax - lightDx * 8 + lightDy * 4, ay2 + lightDy * 8 + lightDx * 4);
+  ctx.fill();
+  // sun symbol
+  ctx.beginPath();
+  ctx.arc(arrowX - 3, arrowY + 3, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fill();
+  ctx.strokeStyle = '#cc8800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Light', arrowX + 12, arrowY + 6);
+  ctx.restore();
+
+  // output gradient bar showing V values
+  const barX = lx + 10, barY = by + 12, barW = plotW - 20, barH = 16;
+  ctx.save();
+  // gradient from dark to light
+  const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  grad.addColorStop(0, '#222');
+  grad.addColorStop(0.5, '#999');
+  grad.addColorStop(1, '#fff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(barX, barY, barW, barH);
+  ctx.fillStyle = '#000';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Shadow (V ≈ 0)', barX + 50, barY + 12);
+  ctx.fillStyle = '#000';
+  ctx.fillText('Soft transition', barX + barW / 2, barY + 12);
+  ctx.fillStyle = '#666';
+  ctx.fillText('Lit (V = 1)', barX + barW - 50, barY + 12);
+  ctx.restore();
+})();
+
+// ─── Figure 5: Distance attenuation ─────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig5');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  const lx = 50, rx = W - 20, by = H - 50, ty = 30;
+  const plotW = rx - lx, plotH = by - ty;
+
+  // height field with two bumps: near one close to fragment, far one further along ray
+  // Ray goes leftward from fragment at x=0.82, so bumps are at x=0.65 (near) and x=0.35 (far)
+  function terrain(x) {
+    const nearBump = 0.50 * Math.exp(-Math.pow((x - 0.65) * 9, 2));
+    const farBump  = 0.50 * Math.exp(-Math.pow((x - 0.35) * 9, 2));
+    const base = 0.05 + 0.03 * Math.sin(x * 8);
+    return Math.min(nearBump + farBump + base, 1.0);
+  }
+
+  const xs = x => lx + x * plotW;
+  const ys = h => by - h * plotH;
+
+  // title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Distance Attenuation: 1/i Weight with α = 0.5', W / 2, 16);
+
+  // draw terrain fill
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(xs(0), by);
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.lineTo(xs(1), by);
+  ctx.closePath();
+  ctx.fillStyle = '#e8dcc8';
+  ctx.fill();
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    if (k === 0) ctx.moveTo(xs(x), ys(terrain(x)));
+    else ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // fragment position (to the right of both bumps, in the valley)
+  const fx = 0.82;
+  const fh = terrain(fx);
+
+  // light ray going left and upward
+  const lightAngle = Math.PI * 0.80;
+  const lightDx = Math.cos(lightAngle);
+  const lightDy = Math.sin(lightAngle);
+  const rayLen = 0.45;
+
+  const rayEndX = fx + lightDx * rayLen;
+  const rayEndH = fh - lightDy * rayLen;
+
+  // draw ray
+  ctx.save();
+  ctx.strokeStyle = COLORS.a05;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath();
+  ctx.moveTo(xs(fx), ys(fh));
+  ctx.lineTo(xs(rayEndX), ys(rayEndH));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // fragment marker
+  ctx.save();
+  ctx.fillStyle = COLORS.a05;
+  ctx.beginPath();
+  ctx.arc(xs(fx), ys(fh), 5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = COLORS.a05;
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Fragment', xs(fx), ys(fh) + 18);
+  ctx.restore();
+
+  // sample points with sqrt distribution
+  const N = 4;
+  const sampleData = [];
+  for (let i = 1; i <= N; i++) {
+    const t = Math.sqrt(i / N);
+    const sx = fx + lightDx * rayLen * t;
+    const sh = fh - lightDy * rayLen * t;
+    const terrainH = terrain(sx);
+    const dh = terrainH - sh;
+    const w = 1 / i;
+    sampleData.push({ i, t, sx, sh, terrainH, dh, w, contrib: dh > 0 ? dh * w : 0 });
+  }
+
+  // draw depth-difference arrows and weight annotations
+  sampleData.forEach(s => {
+    // sample dot on ray
+    ctx.save();
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.arc(xs(s.sx), ys(s.sh), 3, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
+
+    if (s.dh > 0.005) {
+      // vertical arrow showing depth difference
+      ctx.save();
+      ctx.strokeStyle = s.i <= 2 ? '#c44' : '#d89020';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(xs(s.sx), ys(s.sh));
+      ctx.lineTo(xs(s.sx), ys(s.terrainH));
+      ctx.stroke();
+
+      // arrowhead
+      const ay = ys(s.terrainH);
+      ctx.beginPath();
+      ctx.moveTo(xs(s.sx) - 3, ay + 5);
+      ctx.lineTo(xs(s.sx), ay);
+      ctx.lineTo(xs(s.sx) + 3, ay + 5);
+      ctx.stroke();
+      ctx.restore();
+
+      // ΔH label
+      ctx.save();
+      ctx.fillStyle = '#000';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('ΔH', xs(s.sx) + 5, (ys(s.sh) + ys(s.terrainH)) / 2 + 3);
+      ctx.restore();
+
+      // weight & contribution annotation (above the arrow)
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const labelY = ys(s.terrainH) - 8;
+      // weight bubble
+      const wLabel = s.i === 1 ? 'w = 1' : `w = 1/${s.i}`;
+      ctx.fillStyle = s.i <= 2 ? '#c44' : '#d89020';
+      ctx.fillText(wLabel, xs(s.sx), labelY);
+      ctx.font = '9px sans-serif';
+      ctx.fillStyle = '#666';
+      ctx.fillText(`(i = ${s.i})`, xs(s.sx), labelY - 12);
+      ctx.restore();
+    } else {
+      // no occlusion label
+      ctx.save();
+      ctx.fillStyle = '#aaa';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`i=${s.i}`, xs(s.sx), ys(s.sh) - 8);
+      ctx.restore();
+    }
+  });
+
+  // "near occluder" and "far occluder" labels on the bumps
+  ctx.save();
+  ctx.fillStyle = '#8b7355';
+  ctx.font = 'italic 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Far occluder', xs(0.35), ys(terrain(0.35)) - 10);
+  ctx.fillText('Near occluder', xs(0.65), ys(terrain(0.65)) - 10);
+  ctx.restore();
+
+  // light arrow (top right)
+  ctx.save();
+  const arrowX = rx - 80, arrowY = ty + 20;
+  ctx.strokeStyle = '#cc8800';
+  ctx.fillStyle = '#cc8800';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX + lightDx * 40, arrowY - lightDy * 40);
+  ctx.stroke();
+  const ax = arrowX + lightDx * 40, ay2 = arrowY - lightDy * 40;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay2);
+  ctx.lineTo(ax - lightDx * 8 - lightDy * 4, ay2 + lightDy * 8 - lightDx * 4);
+  ctx.lineTo(ax - lightDx * 8 + lightDy * 4, ay2 + lightDy * 8 + lightDx * 4);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arrowX - 3, arrowY + 3, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fill();
+  ctx.strokeStyle = '#cc8800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // summary annotation at bottom
+  ctx.save();
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c44';
+  ctx.fillText('Near: same ΔH × weight 1 → strong shadow', W * 0.3, by + 18);
+  ctx.fillStyle = '#d89020';
+  ctx.fillText('Far: same ΔH × weight ¼ → subtle darkening', W * 0.3, by + 33);
+  ctx.fillStyle = '#000';
+  ctx.font = 'italic 11px sans-serif';
+  ctx.fillText('Effective attenuation: t⁻² (inverse-square law)', W * 0.75, by + 25);
+  ctx.restore();
+})();
+</script>
+</body>
+</html>
