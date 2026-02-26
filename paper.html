@@ -114,6 +114,12 @@
 <canvas id="fig3" width="700" height="600"></canvas>
 <p><em>Figure 3.</em> Discrete sample placement and weights for N = 4 at each &alpha;. Bar height shows the 1/i weight; bar position shows where that sample falls on the ray. The red shaded region is unsampled. As &alpha; increases, the first sample moves toward the ray origin and the unsampled gap shrinks.</p>
 
+<canvas id="fig4" width="700" height="340"></canvas>
+<p><em>Figure 4.</em> Cross-section of a height field with shadow rays cast from three fragments (A, B, C) toward the light. At each sample point along the ray, the depth difference &Delta;H = H_sample &minus; H_ray is measured. Fragment A is deep in shadow (large &Delta;H); fragment C is near the shadow boundary (small &Delta;H, partial shadow); fragment B is fully lit (&Delta;H &le; 0 everywhere). The continuous depth-difference formulation maps these to a smooth gradient from shadowed to lit&mdash;no binary threshold is involved.</p>
+
+<canvas id="fig5" width="700" height="340"></canvas>
+<p><em>Figure 5.</em> Distance attenuation reinforces contact hardening. The same depth difference &Delta;H at a near sample (i = 1, weight 1) produces a much stronger shadow contribution than at a far sample (i = 4, weight 1/4). Combined with the &alpha; = 0.5 square-root distribution, the effective attenuation follows t<sup>&minus;2</sup> in ray-space, matching the solid-angle falloff of real occluders. A nearby occluder casts a dark, well-defined shadow; a distant one of the same height produces only subtle darkening.</p>
+
 <p>As &alpha; increases, the attenuation in ray-space becomes softer. It is important to understand what this means in the discrete case. The 1/<em>i</em> weight assigns the same values regardless of &alpha;: {1, 1/2, 1/3, 1/4} for i = {1, 2, 3, 4}. It is a fixed index-space ramp that does not know or care about the sampling distribution. What &alpha; controls is <em>where those indices land on the ray</em>.</p>
 
 <p>For &alpha; = 0.5, the four samples land at t = {0.50, 0.71, 0.87, 1.00}. Weight 1 is assigned to t = 0.50, weight 0.25 to t = 1.00&mdash;a 4:1 ratio across a 2:1 distance range. Projected into ray-space, this is a steep falloff. The first sample gets strongly prioritized over the last, producing a perceptual effect that <em>partially</em> resembles contact hardening across the [0.5, 1.0] band&mdash;an opacity gradient where nearby occluders cast darker shadows than distant ones. Note that this is not detecting true contact shadows&mdash;the entire [0, 0.5) range is unsampled, and no amount of weight amplification can detect an occluder at a position that was never queried.</p>
@@ -626,6 +632,438 @@ function legend(ctx, x, y, items, fontSize) {
     ctx.fillText(names[pi], rx - 4, ty + 14);
     ctx.restore();
   });
+})();
+
+// ─── Figure 4: Depth-difference softness ─────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig4');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  // layout
+  const lx = 50, rx = W - 20, by = H - 50, ty = 30;
+  const plotW = rx - lx, plotH = by - ty;
+
+  // height field: a smooth terrain with a prominent ridge
+  function terrain(x) {
+    // x in [0,1], returns height in [0,1]
+    const ridge = 0.72 * Math.exp(-Math.pow((x - 0.45) * 6, 2));
+    const bump = 0.15 * Math.exp(-Math.pow((x - 0.75) * 10, 2));
+    const base = 0.08 + 0.06 * Math.sin(x * 12);
+    return Math.min(ridge + bump + base, 1.0);
+  }
+
+  const xs = x => lx + x * plotW;
+  const ys = h => by - h * plotH;
+
+  // title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Depth-Difference Produces Soft Shadow Edges', W / 2, 16);
+
+  // draw terrain fill
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(xs(0), by);
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.lineTo(xs(1), by);
+  ctx.closePath();
+  ctx.fillStyle = '#e8dcc8';
+  ctx.fill();
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    if (k === 0) ctx.moveTo(xs(x), ys(terrain(x)));
+    else ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // light direction (from upper-right, shallow angle)
+  const lightAngle = Math.PI * 0.18; // ~32 degrees from +x, pointing right-upward
+  const lightDx = Math.cos(lightAngle);
+  const lightDy = Math.sin(lightAngle);
+
+  // four fragments on flat ground to the left of the ridge, varying distance
+  const fragments = [
+    { label: 'A', x: 0.20, color: '#c44',    desc: 'Flat ground, closest to ridge' },
+    { label: 'B', x: 0.13, color: '#d89020',  desc: 'Flat ground, mid distance' },
+    { label: 'C', x: 0.07, color: '#3a8a35',  desc: 'Flat ground, far' },
+    { label: 'D', x: 0.02, color: '#3377cc',  desc: 'Flat ground, furthest' },
+  ];
+
+  const N = 4;
+  const alpha = 0.5;
+  const rayLen = 0.40; // length of ray in x-space
+
+  fragments.forEach(frag => {
+    const fx = frag.x;
+    const fh = terrain(fx);
+
+    // ray from fragment toward light
+    // in 2D cross-section: ray goes in lightDir from (fx, fh)
+    const rayEndX = fx + lightDx * rayLen;
+    const rayEndH = fh + lightDy * rayLen;
+
+    // draw ray line
+    ctx.save();
+    ctx.strokeStyle = frag.color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(xs(fx), ys(fh));
+    ctx.lineTo(xs(rayEndX), ys(rayEndH));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // sample points along ray (sqrt distribution) — find winner (max dh/i) first
+    let maxDH = 0, winner = null;
+    const samples = [];
+    for (let i = 1; i <= N; i++) {
+      const t = Math.sqrt(i / N);
+      const sx = fx + lightDx * rayLen * t;
+      const sh = fh + lightDy * rayLen * t;
+      const terrainH = terrain(sx);
+      const dh = terrainH - sh;
+      samples.push({ sx, sh, terrainH, dh });
+      if (dh > 0 && dh / i > maxDH) {
+        maxDH = dh / i;
+        winner = samples[samples.length - 1];
+      }
+    }
+
+    // draw sample dots
+    for (const s of samples) {
+      ctx.save();
+      ctx.fillStyle = frag.color;
+      ctx.beginPath();
+      ctx.arc(xs(s.sx), ys(s.sh), 3, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // draw single ΔH arrow for the winning sample
+    if (winner && winner.dh > 0.005) {
+      ctx.save();
+      ctx.strokeStyle = frag.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(xs(winner.sx), ys(winner.sh));
+      ctx.lineTo(xs(winner.sx), ys(winner.terrainH));
+      ctx.stroke();
+
+      const ay = ys(winner.terrainH);
+      ctx.beginPath();
+      ctx.moveTo(xs(winner.sx) - 3, ay + 5);
+      ctx.lineTo(xs(winner.sx), ay);
+      ctx.lineTo(xs(winner.sx) + 3, ay + 5);
+      ctx.stroke();
+
+      ctx.fillStyle = frag.color;
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('ΔH', xs(winner.sx) + 4, (ys(winner.sh) + ys(winner.terrainH)) / 2 + 3);
+      ctx.restore();
+    }
+
+    // fragment marker
+    ctx.save();
+    ctx.fillStyle = frag.color;
+    ctx.beginPath();
+    ctx.arc(xs(fx), ys(fh), 5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // label below
+    ctx.fillStyle = frag.color;
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(frag.label, xs(fx), ys(fh) + 16);
+
+    // shadow value annotation
+    const shadowVal = Math.min(1, N * maxDH);
+    const visVal = Math.max(0, 1 - shadowVal);
+    ctx.font = '10px sans-serif';
+    ctx.fillText('V = ' + visVal.toFixed(2), xs(fx), ys(fh) + 28);
+    ctx.restore();
+  });
+
+  // light direction arrow (top right)
+  ctx.save();
+  const arrowX = rx - 80, arrowY = ty + 20;
+  ctx.strokeStyle = '#cc8800';
+  ctx.fillStyle = '#cc8800';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX + lightDx * 40, arrowY - lightDy * 40);
+  ctx.stroke();
+  // arrowhead
+  const ax = arrowX + lightDx * 40, ay2 = arrowY - lightDy * 40;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay2);
+  ctx.lineTo(ax - lightDx * 8 - lightDy * 4, ay2 + lightDy * 8 - lightDx * 4);
+  ctx.lineTo(ax - lightDx * 8 + lightDy * 4, ay2 + lightDy * 8 + lightDx * 4);
+  ctx.fill();
+  // sun symbol
+  ctx.beginPath();
+  ctx.arc(arrowX - 3, arrowY + 3, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fill();
+  ctx.strokeStyle = '#cc8800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Light', arrowX + 12, arrowY + 6);
+  ctx.restore();
+
+  // output gradient bar showing V values
+  const barX = lx + 10, barY = by + 12, barW = plotW - 20, barH = 16;
+  ctx.save();
+  // gradient from dark to light
+  const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  grad.addColorStop(0, '#222');
+  grad.addColorStop(0.5, '#999');
+  grad.addColorStop(1, '#fff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(barX, barY, barW, barH);
+  ctx.fillStyle = '#000';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Shadow (V ≈ 0)', barX + 50, barY + 12);
+  ctx.fillStyle = '#000';
+  ctx.fillText('Soft transition', barX + barW / 2, barY + 12);
+  ctx.fillStyle = '#666';
+  ctx.fillText('Lit (V = 1)', barX + barW - 50, barY + 12);
+  ctx.restore();
+})();
+
+// ─── Figure 5: Distance attenuation ─────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('fig5');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+
+  const lx = 50, rx = W - 20, by = H - 50, ty = 30;
+  const plotW = rx - lx, plotH = by - ty;
+
+  // height field with two bumps: near one close to fragment, far one further along ray
+  // Ray goes leftward from fragment at x=0.82, so bumps are at x=0.65 (near) and x=0.35 (far)
+  function terrain(x) {
+    const nearBump = 0.50 * Math.exp(-Math.pow((x - 0.65) * 9, 2));
+    const farBump  = 0.50 * Math.exp(-Math.pow((x - 0.35) * 9, 2));
+    const base = 0.05 + 0.03 * Math.sin(x * 8);
+    return Math.min(nearBump + farBump + base, 1.0);
+  }
+
+  const xs = x => lx + x * plotW;
+  const ys = h => by - h * plotH;
+
+  // title
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Distance Attenuation: 1/i Weight with α = 0.5', W / 2, 16);
+
+  // draw terrain fill
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(xs(0), by);
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.lineTo(xs(1), by);
+  ctx.closePath();
+  ctx.fillStyle = '#e8dcc8';
+  ctx.fill();
+  ctx.strokeStyle = '#8b7355';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let k = 0; k <= 200; k++) {
+    const x = k / 200;
+    if (k === 0) ctx.moveTo(xs(x), ys(terrain(x)));
+    else ctx.lineTo(xs(x), ys(terrain(x)));
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // fragment position (to the right of both bumps, in the valley)
+  const fx = 0.82;
+  const fh = terrain(fx);
+
+  // light ray going left and upward
+  const lightAngle = Math.PI * 0.80;
+  const lightDx = Math.cos(lightAngle);
+  const lightDy = Math.sin(lightAngle);
+  const rayLen = 0.45;
+
+  const rayEndX = fx + lightDx * rayLen;
+  const rayEndH = fh - lightDy * rayLen;
+
+  // draw ray
+  ctx.save();
+  ctx.strokeStyle = COLORS.a05;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath();
+  ctx.moveTo(xs(fx), ys(fh));
+  ctx.lineTo(xs(rayEndX), ys(rayEndH));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // fragment marker
+  ctx.save();
+  ctx.fillStyle = COLORS.a05;
+  ctx.beginPath();
+  ctx.arc(xs(fx), ys(fh), 5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = COLORS.a05;
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Fragment', xs(fx), ys(fh) + 18);
+  ctx.restore();
+
+  // sample points with sqrt distribution
+  const N = 4;
+  const sampleData = [];
+  for (let i = 1; i <= N; i++) {
+    const t = Math.sqrt(i / N);
+    const sx = fx + lightDx * rayLen * t;
+    const sh = fh - lightDy * rayLen * t;
+    const terrainH = terrain(sx);
+    const dh = terrainH - sh;
+    const w = 1 / i;
+    sampleData.push({ i, t, sx, sh, terrainH, dh, w, contrib: dh > 0 ? dh * w : 0 });
+  }
+
+  // draw depth-difference arrows and weight annotations
+  sampleData.forEach(s => {
+    // sample dot on ray
+    ctx.save();
+    ctx.fillStyle = '#555';
+    ctx.beginPath();
+    ctx.arc(xs(s.sx), ys(s.sh), 3, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
+
+    if (s.dh > 0.005) {
+      // vertical arrow showing depth difference
+      ctx.save();
+      ctx.strokeStyle = s.i <= 2 ? '#c44' : '#d89020';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(xs(s.sx), ys(s.sh));
+      ctx.lineTo(xs(s.sx), ys(s.terrainH));
+      ctx.stroke();
+
+      // arrowhead
+      const ay = ys(s.terrainH);
+      ctx.beginPath();
+      ctx.moveTo(xs(s.sx) - 3, ay + 5);
+      ctx.lineTo(xs(s.sx), ay);
+      ctx.lineTo(xs(s.sx) + 3, ay + 5);
+      ctx.stroke();
+      ctx.restore();
+
+      // ΔH label
+      ctx.save();
+      ctx.fillStyle = '#000';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('ΔH', xs(s.sx) + 5, (ys(s.sh) + ys(s.terrainH)) / 2 + 3);
+      ctx.restore();
+
+      // weight & contribution annotation (above the arrow)
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      const labelY = ys(s.terrainH) - 8;
+      // weight bubble
+      const wLabel = s.i === 1 ? 'w = 1' : `w = 1/${s.i}`;
+      ctx.fillStyle = s.i <= 2 ? '#c44' : '#d89020';
+      ctx.fillText(wLabel, xs(s.sx), labelY);
+      ctx.font = '9px sans-serif';
+      ctx.fillStyle = '#666';
+      ctx.fillText(`(i = ${s.i})`, xs(s.sx), labelY - 12);
+      ctx.restore();
+    } else {
+      // no occlusion label
+      ctx.save();
+      ctx.fillStyle = '#aaa';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`i=${s.i}`, xs(s.sx), ys(s.sh) - 8);
+      ctx.restore();
+    }
+  });
+
+  // "near occluder" and "far occluder" labels on the bumps
+  ctx.save();
+  ctx.fillStyle = '#8b7355';
+  ctx.font = 'italic 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Far occluder', xs(0.35), ys(terrain(0.35)) - 10);
+  ctx.fillText('Near occluder', xs(0.65), ys(terrain(0.65)) - 10);
+  ctx.restore();
+
+  // light arrow (top right)
+  ctx.save();
+  const arrowX = rx - 80, arrowY = ty + 20;
+  ctx.strokeStyle = '#cc8800';
+  ctx.fillStyle = '#cc8800';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX + lightDx * 40, arrowY - lightDy * 40);
+  ctx.stroke();
+  const ax = arrowX + lightDx * 40, ay2 = arrowY - lightDy * 40;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay2);
+  ctx.lineTo(ax - lightDx * 8 - lightDy * 4, ay2 + lightDy * 8 - lightDx * 4);
+  ctx.lineTo(ax - lightDx * 8 + lightDy * 4, ay2 + lightDy * 8 + lightDx * 4);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(arrowX - 3, arrowY + 3, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffcc00';
+  ctx.fill();
+  ctx.strokeStyle = '#cc8800';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // summary annotation at bottom
+  ctx.save();
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c44';
+  ctx.fillText('Near: same ΔH × weight 1 → strong shadow', W * 0.3, by + 18);
+  ctx.fillStyle = '#d89020';
+  ctx.fillText('Far: same ΔH × weight ¼ → subtle darkening', W * 0.3, by + 33);
+  ctx.fillStyle = '#000';
+  ctx.font = 'italic 11px sans-serif';
+  ctx.fillText('Effective attenuation: t⁻² (inverse-square law)', W * 0.75, by + 25);
+  ctx.restore();
 })();
 </script>
 </body>

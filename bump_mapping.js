@@ -205,7 +205,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 
     // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
     // peaks (h~1) -> high alpha (contact shadows)
-    float alpha = mix(0.5, 2.0, surfaceHeight);
+    float alpha = mix(0.1, 2.0, surfaceHeight);
 
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
