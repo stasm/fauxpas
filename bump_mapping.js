@@ -22,6 +22,7 @@ var SHADOW_LABELS = {
     fxps: 'FXPS', haps: 'HAPS', contact: 'Contact',
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
 };
+var SHADOWMAP_LABELS = { none: 'No SM', hard: 'SM Hard', pcf: 'SM PCF' };
 
 // ---------------------------------------------------------------------------
 // Shaders (module-level constants, shared across all instances)
@@ -37,11 +38,13 @@ in vec2 vert_uv;
 uniform mat4 model_mtx;
 uniform mat4 norm_mtx;
 uniform mat4 proj_mtx;
+uniform mat4 light_mvp_mtx;
 
 out vec2 frag_uv;
 out vec3 ts_light_pos; // Tangent space values
 out vec3 ts_view_pos;  //
 out vec3 ts_frag_pos;  //
+out vec4 ls_frag_pos;  // Light clip-space position for shadow mapping
 
 void main(void)
 {
@@ -60,6 +63,7 @@ void main(void)
     ts_view_pos = tbn * vec3(0, 0, 0);
     ts_frag_pos = tbn * ts_frag_pos;
 
+    ls_frag_pos = light_mvp_mtx * vec4(vert_pos, 1.0);
     frag_uv = vert_uv;
 }
 `;
@@ -86,11 +90,14 @@ uniform float parallax_bias;
 uniform float num_layers;
 uniform float shadow_steps;
 uniform float fxps_alpha;
+uniform sampler2D tex_shadow;
+uniform int shadowmap_type;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
 in vec3 ts_view_pos;
 in vec3 ts_frag_pos;
+in vec4 ls_frag_pos;
 
 out vec4 fragColor;
 
@@ -401,6 +408,34 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
 
+// Shadow map: single depth comparison
+float shadowMapHard(vec4 lp) {
+    if (lp.w <= 0.0) return 1.0;
+    vec3 proj = lp.xyz / lp.w * 0.5 + 0.5;
+    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
+    if (proj.z >= 1.0 || proj.z <= 0.0) return 1.0;
+    float closest = texture(tex_shadow, proj.xy).r;
+    return proj.z - 0.001 > closest ? 0.0 : 1.0;
+}
+
+// Shadow map: 3×3 PCF kernel for soft edges
+float shadowMapPCF(vec4 lp) {
+    if (lp.w <= 0.0) return 1.0;
+    vec3 proj = lp.xyz / lp.w * 0.5 + 0.5;
+    if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0) return 1.0;
+    if (proj.z >= 1.0 || proj.z <= 0.0) return 1.0;
+    float bias = 0.001;
+    float shadow = 0.0;
+    vec2 texelSize = vec2(1.0 / 512.0);
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            float d = texture(tex_shadow, proj.xy + vec2(float(x), float(y)) * texelSize).r;
+            shadow += proj.z - bias > d ? 1.0 : 0.0;
+        }
+    }
+    return 1.0 - shadow / 9.0;
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -426,7 +461,11 @@ void main(void)
     else if (shadow_type == 5) shadow = binarySearchShadow(uv, light_dir);
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
-    else if (shadow_type == 8) shadow = fastApproximateShadowFixed(uv, light_dir);
+    else if (shadow_type == 8)  shadow = fastApproximateShadowFixed(uv, light_dir);
+
+    // Shadow map is orthogonal — multiply on top of any parallax shadow
+    if (shadowmap_type == 1) shadow *= shadowMapHard(ls_frag_pos);
+    else if (shadowmap_type == 2) shadow *= shadowMapPCF(ls_frag_pos);
 
     if (type == 0) {
         // No bump mapping
@@ -441,6 +480,18 @@ void main(void)
         fragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
     }
 }
+`;
+
+// Shadow-pass shaders (depth-only render from the light's perspective)
+var shadow_vert_src = `#version 300 es
+precision highp float;
+in vec3 vert_pos;
+uniform mat4 light_mvp_mtx;
+void main() { gl_Position = light_mvp_mtx * vec4(vert_pos, 1.0); }
+`;
+var shadow_frag_src = `#version 300 es
+precision highp float;
+void main() {}
 `;
 
 // ---------------------------------------------------------------------------
@@ -459,15 +510,23 @@ function shadingTypeToInt(val) {
 
 function shadowTypeToInt(val) {
     switch (val) {
-        case "hard":       return 1;
-        case "soft":       return 2;
-        case "haps":       return 3;
-        case "contact":    return 4;
-        case "binary":     return 5;
-        case "cone":       return 6;
-        case "relief":     return 7;
-        case "fxps":       return 8;
-        default:           return 0;
+        case "hard":    return 1;
+        case "soft":    return 2;
+        case "haps":    return 3;
+        case "contact": return 4;
+        case "binary":  return 5;
+        case "cone":    return 6;
+        case "relief":  return 7;
+        case "fxps":    return 8;
+        default:        return 0;
+    }
+}
+
+function shadowmapTypeToInt(val) {
+    switch (val) {
+        case "hard": return 1;
+        case "pcf":  return 2;
+        default:     return 0;
     }
 }
 
@@ -484,16 +543,17 @@ function update_cost_labels_from(N, S) {
         'iterative': N + ' tex',
     };
     var shadow_costs = {
-        'none':       '0 tex',
-        'hard':       '\u2264' + (1 + S) + ' tex',
-        'soft':       (1 + S) + ' tex',
-        'fxps':       (1 + S) + ' tex',
-        'haps':       (1 + S) + ' tex',
-        'contact':    '\u2264' + (1 + S) + ' tex',
-        'binary':     '\u2264' + (S + 10) + ' tex',
-        'cone':       (1 + S) + ' tex',
-        'relief':     '\u2264' + (S + 7) + ' tex',
+        'none':    '0 tex',
+        'hard':    '\u2264' + (1 + S) + ' tex',
+        'soft':    (1 + S) + ' tex',
+        'fxps':    (1 + S) + ' tex',
+        'haps':    (1 + S) + ' tex',
+        'contact': '\u2264' + (1 + S) + ' tex',
+        'binary':  '\u2264' + (S + 10) + ' tex',
+        'cone':    (1 + S) + ' tex',
+        'relief':  '\u2264' + (S + 7) + ' tex',
     };
+    var shadowmap_costs = { 'none': '0 tex', 'hard': '1 tex', 'pcf': '9 tex' };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);
         if (el) el.textContent = '(' + shading_costs[val] + ')';
@@ -501,6 +561,10 @@ function update_cost_labels_from(N, S) {
     for (var val in shadow_costs) {
         var el = document.getElementById('cost_shadow_' + val);
         if (el) el.textContent = '(' + shadow_costs[val] + ')';
+    }
+    for (var val in shadowmap_costs) {
+        var el = document.getElementById('cost_sm_' + val);
+        if (el) el.textContent = '(' + shadowmap_costs[val] + ')';
     }
 }
 
@@ -520,15 +584,16 @@ function createInstance(canvasEl) {
 
     // Default settings
     inst.settings = {
-        tex_set:      0,
-        show_tex:     true,
-        shading_type: 'iterative',
-        shadow_type:  'fxps',
-        scale:        8,
-        bias_ratio:   100,
-        steps:        12,
-        shadow_steps: 3,
-        fxps_alpha:   0.5,
+        tex_set:       0,
+        show_tex:      true,
+        shadowmap_type:'none',
+        shading_type:  'iterative',
+        shadow_type:   'fxps',
+        scale:         8,
+        bias_ratio:    100,
+        steps:         12,
+        shadow_steps:  3,
+        fxps_alpha:    0.5,
     };
 
     var gl;
@@ -545,7 +610,7 @@ function createInstance(canvasEl) {
     gl.depthFunc(gl.LEQUAL);
     gl.enable(gl.CULL_FACE);
 
-    // Shaders
+    // Main shaders
     var frag = get_shader(gl, frag_src, true);
     var vert = get_shader(gl, vert_src, false);
     inst.pgm = gl.createProgram();
@@ -565,6 +630,37 @@ function createInstance(canvasEl) {
     gl.enableVertexAttribArray(inst.attr_bitang);
     inst.attr_uv = gl.getAttribLocation(inst.pgm, "vert_uv");
     gl.enableVertexAttribArray(inst.attr_uv);
+
+    // Shadow-pass shaders (depth-only, single attribute)
+    var s_vert = get_shader(gl, shadow_vert_src, false);
+    var s_frag = get_shader(gl, shadow_frag_src, true);
+    inst.shadow_pgm = gl.createProgram();
+    gl.attachShader(inst.shadow_pgm, s_vert);
+    gl.attachShader(inst.shadow_pgm, s_frag);
+    gl.linkProgram(inst.shadow_pgm);
+    if (!gl.getProgramParameter(inst.shadow_pgm, gl.LINK_STATUS)) {
+        alert("Shadow shader link error: " + gl.getProgramInfoLog(inst.shadow_pgm));
+    }
+
+    // Shadow map: 512×512 depth texture + framebuffer
+    var SHADOW_SIZE = 512;
+    inst.shadow_size = SHADOW_SIZE;
+    inst.shadow_depth_tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, inst.shadow_depth_tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24,
+        SHADOW_SIZE, SHADOW_SIZE, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    inst.shadow_fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, inst.shadow_fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
+        gl.TEXTURE_2D, inst.shadow_depth_tex, 0);
+    gl.drawBuffers([gl.NONE]);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
     // Mesh buffers
     inst.vbo_pos = gl.createBuffer();
@@ -624,6 +720,16 @@ function createInstance(canvasEl) {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
     inst.num_indices = indices.length;
 
+    // Shadow VAO: only vert_pos needed for depth-only pass
+    inst.shadow_vao = gl.createVertexArray();
+    gl.bindVertexArray(inst.shadow_vao);
+    var shadow_attr_pos = gl.getAttribLocation(inst.shadow_pgm, "vert_pos");
+    gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
+    gl.enableVertexAttribArray(shadow_attr_pos);
+    gl.vertexAttribPointer(shadow_attr_pos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inst.index_buffer);
+    gl.bindVertexArray(null);
+
     // Textures (each GL context needs its own copies)
     inst.tex_sets = [
         { norm: load_texture(gl, "bump_normal.png"),   diffuse: load_texture(gl, "bump_diffuse.png") },
@@ -650,20 +756,43 @@ function renderInstance(inst, time) {
         gl.viewport(0, 0, dw, dh);
     }
 
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-    // Use actual display aspect so the cube is never distorted.
-    // The fixed height + FOV means the cube is always the same size vertically;
-    // wider canvases just reveal more of the scene on the sides.
+    // Compute model matrix (shared by shadow pass and main pass)
     var a = mtx_perspective(45, dw / dh, 0.1, 100.0);
     var b = mtx_translation(0, 0, -4.5);
     var c = mtx_rotation_x(0.4);
     var d = mtx_rotation_y(time * 0.0075);
     var model = mtx_mul(mtx_mul(b, c), d);
 
+    // Light matrices — perspective from (1,2,0) looking at cube center
+    var light_view = mtx_lookat([1, 2, 0], [0, 0, -4.5], [0, 1, 0]);
+    var light_proj = mtx_perspective(90, 1.0, 0.5, 15.0);
+    var light_mvp  = mtx_mul(light_proj, mtx_mul(light_view, model));
+
+    // Shadow pass: render depth-only from light's POV (when SM is active)
+    var shadow = shadowTypeToInt(s.shadow_type);
+    var smt = shadowmapTypeToInt(s.shadowmap_type);
+    if (smt > 0) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, inst.shadow_fbo);
+        gl.viewport(0, 0, inst.shadow_size, inst.shadow_size);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.cullFace(gl.FRONT);
+        gl.useProgram(inst.shadow_pgm);
+        gl.uniformMatrix4fv(gl.getUniformLocation(inst.shadow_pgm, "light_mvp_mtx"), false, light_mvp);
+        gl.bindVertexArray(inst.shadow_vao);
+        gl.drawElements(gl.TRIANGLES, inst.num_indices, gl.UNSIGNED_SHORT, 0);
+        gl.bindVertexArray(null);
+        gl.cullFace(gl.BACK);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, dw, dh);
+    }
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(inst.pgm);
+
     gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "model_mtx"), false, model);
     gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "norm_mtx"), false, mtx_transpose(mtx_inverse(model)));
     gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "proj_mtx"), false, mtx_mul(a, model));
+    gl.uniformMatrix4fv(gl.getUniformLocation(inst.pgm, "light_mvp_mtx"), false, light_mvp);
 
     // Texture set
     var set = inst.tex_sets[s.tex_set];
@@ -673,6 +802,10 @@ function renderInstance(inst, time) {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_diffuse"), 1);
+
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, inst.shadow_depth_tex);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_shadow"), 2);
 
     // Technique uniforms
     var type = shadingTypeToInt(s.shading_type);
@@ -687,10 +820,10 @@ function renderInstance(inst, time) {
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "num_layers"), s.steps);
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "show_tex"), s.show_tex ? 1 : 0);
 
-    var shadow = shadowTypeToInt(s.shadow_type);
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "shadow_type"), shadow);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "shadow_steps"), s.shadow_steps);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "fxps_alpha"), s.fxps_alpha);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "shadowmap_type"), smt);
 
     // Draw
     gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
@@ -725,17 +858,18 @@ function renderInstance(inst, time) {
     }
     var shadow_samples = 0;
     switch (s.shadow_type) {
-        case "none":       shadow_samples = 0; break;
-        case "hard":       shadow_samples = 1 + S; break;
-        case "soft":       shadow_samples = 1 + S; break;
-        case "fxps":       shadow_samples = 1 + S; break;
-        case "haps":       shadow_samples = 1 + S; break;
-        case "contact":    shadow_samples = 1 + S; break;
-        case "binary":     shadow_samples = S + 10; break;
-        case "cone":       shadow_samples = 1 + S; break;
-        case "relief":     shadow_samples = S + 7; break;
+        case "none":    shadow_samples = 0; break;
+        case "hard":    shadow_samples = 1 + S; break;
+        case "soft":    shadow_samples = 1 + S; break;
+        case "fxps":    shadow_samples = 1 + S; break;
+        case "haps":    shadow_samples = 1 + S; break;
+        case "contact": shadow_samples = 1 + S; break;
+        case "binary":  shadow_samples = S + 10; break;
+        case "cone":    shadow_samples = 1 + S; break;
+        case "relief":  shadow_samples = S + 7; break;
     }
-    var total_samples = parallax_samples + shadow_samples;
+    var sm_samples = s.shadowmap_type === 'hard' ? 1 : s.shadowmap_type === 'pcf' ? 9 : 0;
+    var total_samples = parallax_samples + shadow_samples + sm_samples;
     var time_str = inst.frame_time_avg < 1
         ? (inst.frame_time_avg * 1000).toFixed(0) + " \u00B5s"
         : inst.frame_time_avg.toFixed(2) + " ms";
@@ -761,10 +895,12 @@ function startRenderLoop() {
 // ---------------------------------------------------------------------------
 function updateTitleBar(inst) {
     var s = inst.settings;
+    var sm_label = SHADOWMAP_LABELS[s.shadowmap_type];
     inst.titleTextEl.textContent =
         (SHADING_LABELS[s.shading_type] || s.shading_type)
         + '  \u2502  '
-        + (SHADOW_LABELS[s.shadow_type] || s.shadow_type);
+        + (SHADOW_LABELS[s.shadow_type] || s.shadow_type)
+        + (sm_label && sm_label !== 'No SM' ? '  +  ' + sm_label : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +929,10 @@ function syncControlsFromInstance(inst) {
     // Shading type radio
     var shadingRadio = document.querySelector('input[name="shading_type"][value="' + s.shading_type + '"]');
     if (shadingRadio) shadingRadio.checked = true;
+
+    // Shadow map type radio
+    var smRadio = document.querySelector('input[name="shadowmap_type"][value="' + s.shadowmap_type + '"]');
+    if (smRadio) smRadio.checked = true;
 
     // Shadow type radio
     var shadowRadio = document.querySelector('input[name="shadow_type"][value="' + s.shadow_type + '"]');
@@ -857,6 +997,15 @@ function bindControlEvents() {
             document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
             document.getElementById('bias_ratio_control').style.visibility = type == 5 ? 'visible' : 'hidden';
             document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
+            updateTitleBar(sel());
+        });
+    }
+
+    // Shadow map type radios
+    var smRadios = document.querySelectorAll('input[name="shadowmap_type"]');
+    for (var i = 0; i < smRadios.length; i++) {
+        smRadios[i].addEventListener('change', function () {
+            sel().settings.shadowmap_type = this.value;
             updateTitleBar(sel());
         });
     }
@@ -1155,6 +1304,33 @@ function mtx_rotation_y(r) {
         0, 1, 0, 0,
         Math.sin(r), 0, Math.cos(r), 0,
         0, 0, 0, 1
+    ];
+}
+
+// Look-at view matrix (camera at eye, looking toward center, up vector up)
+function mtx_lookat(eye, center, up) {
+    var fx = center[0]-eye[0], fy = center[1]-eye[1], fz = center[2]-eye[2];
+    var fl = Math.sqrt(fx*fx + fy*fy + fz*fz);
+    fx /= fl; fy /= fl; fz /= fl;
+
+    var rx = fy*up[2] - fz*up[1];
+    var ry = fz*up[0] - fx*up[2];
+    var rz = fx*up[1] - fy*up[0];
+    var rl = Math.sqrt(rx*rx + ry*ry + rz*rz);
+    rx /= rl; ry /= rl; rz /= rl;
+
+    var ux = ry*fz - rz*fy;
+    var uy = rz*fx - rx*fz;
+    var uz = rx*fy - ry*fx;
+
+    return [
+        rx, ux, -fx, 0,
+        ry, uy, -fy, 0,
+        rz, uz, -fz, 0,
+        -(rx*eye[0] + ry*eye[1] + rz*eye[2]),
+        -(ux*eye[0] + uy*eye[1] + uz*eye[2]),
+         (fx*eye[0] + fy*eye[1] + fz*eye[2]),
+        1
     ];
 }
 
