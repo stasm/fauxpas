@@ -33,20 +33,23 @@
 
 <p>However, a substantial portion of real-time rendering in 2026 operates outside this frontier. Mobile games targeting OpenGL ES 2.0/3.0 or WebGL 1.0 have no access to hardware ray tracing or tessellation. Handheld gaming systems ship with GPU budgets that preclude per-pixel ray tracing at acceptable frame rates. WebGL applications must run on the intersection of all browser GPU backends, limiting available features to the common subset. Custom and legacy game engines&mdash;particularly forward-rendering pipelines&mdash;may lack the deferred infrastructure that modern shadow techniques assume. Stylized and retro-aesthetic projects deliberately choose simpler shading models for artistic reasons. And many existing asset pipelines produce only diffuse, normal, specular, and height maps, without the full PBR material suite that modern techniques require.</p>
 
-<p>For all of these contexts, parallax occlusion mapping remains a practical tool: it adds compelling surface detail using only a height map and a few texture fetches per fragment, with no geometry amplification, no precomputed data structures, and no render-target dependencies. The self-shadowing component of POM has received comparatively little attention since Tatarchuk&rsquo;s original formulation in 2006, despite being the weakest link in the technique at low sample counts. FXPS addresses this specific gap&mdash;the meso/macro scale in the table below&mdash;improving the quality of POM self-shadows in the 2&ndash;4 iteration regime where they are most needed and least served by existing work.</p>
+<p>For all of these contexts, parallax occlusion mapping remains a practical tool: it adds compelling surface detail using only a height map and a few texture fetches per fragment, with no geometry amplification, no precomputed data structures, and no render-target dependencies. The self-shadowing component of POM has received comparatively little attention since Tatarchuk&rsquo;s original formulation in 2006, despite being the weakest link in the technique at low sample counts. FXPS addresses this specific gap&mdash;the surface scale in the table below&mdash;improving the quality of POM self-shadows in the 2&ndash;4 iteration regime where they are most needed and least served by existing work.</p>
 
 <table border="1" cellpadding="6" cellspacing="0">
 <thead>
 <tr><th>Scale</th><th>Technique</th></tr>
 </thead>
 <tbody>
-<tr><td>Micro</td><td>Microfacet BRDF shadowing (Smith <em>G</em>)</td></tr>
-<tr><td>Meso</td><td>Normal mapping</td></tr>
-<tr><td>Meso/Macro</td><td>POM / cone stepping &mdash; <strong>FXPS operates here</strong></td></tr>
-<tr><td>Macro</td><td>Screen-space shadows</td></tr>
+<tr><td>Sub-fragment</td><td>Microfacet BRDF shadowing (Smith <em>G</em>)</td></tr>
+<tr><td>Fragment</td><td>Normal mapping</td></tr>
+<tr><td>Surface</td><td>POM, screen-space contact shadows, <strong>FXPS</strong></td></tr>
 <tr><td>Scene</td><td>Shadow maps / ray-traced shadows</td></tr>
 </tbody>
 </table>
+
+<p>A primary design goal of FXPS is not to produce physically correct shadows but to give visual grounding to the parallax displacement effect&mdash;to reinforce the illusion that the height field has real depth by darkening the regions where light would plausibly be blocked. In this role, the shadow term serves the parallax mapping rather than competing with scene-level shadow techniques for accuracy.</p>
+
+<p>This framing also reveals a benefit that extends beyond the low-iteration regime. Even when the performance budget permits higher sample counts, iterations spent on shadowing are iterations not spent on parallax displacement&mdash;and displacement quality is typically more sensitive to step count than shadow quality is. A shadowing technique that looks good at 2&ndash;4 samples frees the remaining budget for additional displacement steps, where the visual return per iteration is higher.</p>
 
 <h2>3. Prior Work</h2>
 
