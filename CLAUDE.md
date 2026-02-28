@@ -26,7 +26,11 @@ Open `index.html` in a browser. Click any canvas to pause/resume rotation.
 
 | File | Purpose |
 |---|---|
-| `bump_mapping.js` | Shaders, WebGL setup, render loop, matrix library, multi-instance UI logic |
+| `bump_mapping.js` | Shared state, label maps, UI logic, render loop, init |
+| `instance.js` | `createInstance`, `renderInstance`, type-to-int helpers |
+| `shaders.js` | GLSL vertex and fragment shader source strings |
+| `webgl-utils.js` | `get_shader`, `load_texture` helpers |
+| `matrix.js` | Hand-rolled 4×4 matrix library |
 | `index.html` | Canvas strip + controls UI |
 | `paper.html` | FXPS paper (text only) |
 | `appendix.html` | FXPS paper figures (Canvas 2D rendered) |
