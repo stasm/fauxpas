@@ -198,7 +198,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - maxOcclusion, 0.0, 1.0);
 }
 
-float fastApproximateShadow(vec2 uv, vec3 lightDir)
+float heightAdaptiveShadow(vec2 uv, vec3 lightDir)
 {
     vec3 step = lightDir * depth_scale;
     float surfaceHeight = texture(tex_norm, uv).a;
@@ -220,7 +220,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
 }
 
-float fastApproximateShadowFixed(vec2 uv, vec3 lightDir)
+float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
     vec3 step = lightDir * depth_scale;
     float surfaceHeight = texture(tex_norm, uv).a;
@@ -421,12 +421,12 @@ void main(void)
     float shadow = 1.0;
     if (shadow_type == 1) shadow = pomHardShadow(uv, light_dir);
     else if (shadow_type == 2) shadow = pomSoftShadow(uv, light_dir);
-    else if (shadow_type == 3) shadow = fastApproximateShadow(uv, light_dir);
+    else if (shadow_type == 3) shadow = heightAdaptiveShadow(uv, light_dir);
     else if (shadow_type == 4) shadow = contactHardeningShadow(uv, light_dir);
     else if (shadow_type == 5) shadow = binarySearchShadow(uv, light_dir);
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
-    else if (shadow_type == 8) shadow = fastApproximateShadowFixed(uv, light_dir);
+    else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping
@@ -628,7 +628,7 @@ function createInstance(canvasEl) {
     inst.tex_sets = [
         { norm: load_texture(gl, "bump_normal.png"),   diffuse: load_texture(gl, "bump_diffuse.png") },
         { norm: load_texture(gl, "bricks_normal.png"), diffuse: load_texture(gl, "bricks_diffuse.png") },
-        { norm: load_texture(gl, "rocks_normal.png"),  diffuse: load_texture(gl, "rocks_difuse.png") },
+        { norm: load_texture(gl, "rocks_normal.png"),  diffuse: load_texture(gl, "rocks_diffuse.png") },
     ];
 
     return inst;
