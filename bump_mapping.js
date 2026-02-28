@@ -163,6 +163,7 @@ float pomHardShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
@@ -186,6 +187,7 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
@@ -248,6 +250,7 @@ float contactHardeningShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
@@ -276,6 +279,7 @@ float binarySearchShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
@@ -329,6 +333,7 @@ float coneTracedShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
@@ -358,6 +363,7 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
     if (surfaceDepth < 0.01) return 1.0;
+    if (lightDir.z <= 0.0) return 1.0;
 
     float depthPerStep = surfaceDepth / shadow_steps;
     vec2 uvPerStep = lightDir.xy * depth_scale * depthPerStep / lightDir.z;
