@@ -761,10 +761,13 @@ function startRenderLoop() {
 // ---------------------------------------------------------------------------
 function updateTitleBar(inst) {
     var s = inst.settings;
-    inst.titleTextEl.textContent =
-        (SHADING_LABELS[s.shading_type] || s.shading_type)
-        + '  \u2502  '
-        + (SHADOW_LABELS[s.shadow_type] || s.shadow_type);
+    var type = shadingTypeToInt(s.shading_type);
+    var shadow = shadowTypeToInt(s.shadow_type);
+    var shadingLabel = (SHADING_LABELS[s.shading_type] || s.shading_type)
+        + (type >= 3 ? ' (n=' + s.steps + ')' : '');
+    var shadowLabel = (SHADOW_LABELS[s.shadow_type] || s.shadow_type)
+        + (shadow > 0 ? ' (n=' + s.shadow_steps + ')': '');
+    inst.titleTextEl.textContent = shadingLabel + ', ' + shadowLabel;
 }
 
 // ---------------------------------------------------------------------------
@@ -886,11 +889,13 @@ function bindControlEvents() {
         sel().settings.steps = parseFloat(this.value);
         document.getElementById('steps_val').textContent = sel().settings.steps;
         update_cost_labels();
+        updateTitleBar(sel());
     });
     document.getElementById('shadow_steps').addEventListener('input', function () {
         sel().settings.shadow_steps = parseFloat(this.value);
         document.getElementById('shadow_steps_val').textContent = sel().settings.shadow_steps;
         update_cost_labels();
+        updateTitleBar(sel());
     });
     document.getElementById('fxps_alpha').addEventListener('input', function () {
         sel().settings.fxps_alpha = parseFloat(this.value);
