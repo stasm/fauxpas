@@ -33,7 +33,7 @@ Open `index.html` in a browser. Click any canvas to pause/resume rotation.
 | `serve.py` | Dev HTTP server that adds COOP/COEP headers |
 | `bump_normal.png` / `bump_diffuse.png` | "Classic" texture set |
 | `bricks_normal.png` / `bricks_diffuse.png` | "Bricks" texture set |
-| `rocks_normal.png` / `rocks_difuse.png` | "Rocks" texture set (note: filename typo `difuse`) |
+| `rocks_normal.png` / `rocks_diffuse.png` | "Rocks" texture set |
 
 ## Architecture
 
@@ -83,12 +83,12 @@ The shader uses **GLSL ES 3.00** (`#version 300 es`), i.e., WebGL 2. Do not use 
 | 0 | None | — |
 | 1 | Hard POM | `pomHardShadow` |
 | 2 | Soft POM | `pomSoftShadow` |
-| 3 | HAPS | `fastApproximateShadow` (height-adaptive α) |
+| 3 | HAPS | `heightAdaptiveShadow` (height-adaptive α) |
 | 4 | Contact | `contactHardeningShadow` |
 | 5 | Binary Search | `binarySearchShadow` |
 | 6 | Cone Traced | `coneTracedShadow` |
 | 7 | Relief | `reliefMappingShadow` |
-| 8 | FXPS | `fastApproximateShadowFixed` (fixed α = `fxps_alpha`) |
+| 8 | FXPS | `fastApproximateShadow` (fixed α = `fxps_alpha`) |
 
 3. **`main()`** — dispatches to the selected parallax and shadow functions, then applies Lambertian shading with a constant 0.3 ambient term.
 
@@ -109,8 +109,8 @@ There is **no separate depth/height texture**. The third file referenced in some
 - All parallax/shadow loops use `for (int i = 0; i < 32; i++)` with an early `break` against `num_layers` or `shadow_steps`. This keeps loops bounded by a compile-time constant (a requirement inherited from WebGL 1 that is maintained for clarity).
 - Matrices are flat 16-element arrays in column-major order (OpenGL convention). The JS matrix functions are written as their mathematical transposes to compensate.
 - The `norm_mtx` uniform is `transpose(inverse(model_mtx))`, computed on the JS side via `mtx_transpose(mtx_inverse(model))`.
-- The FXPS technique (`fastApproximateShadowFixed`, `shadow_type == 8`) uses a power-law step distribution `t = pow(i/N, alpha)` with `1/i` weighting and `strength = N` normalization. The exponent `alpha` is exposed as the `fxps_alpha` slider (default 0.5). See `paper.html` for the derivation.
-- HAPS (`fastApproximateShadow`, `shadow_type == 3`) is the height-adaptive variant that mixes alpha per-fragment based on surface height.
+- The FXPS technique (`fastApproximateShadow`, `shadow_type == 8`) uses a power-law step distribution `t = pow(i/N, alpha)` with `1/i` weighting and `strength = N` normalization. The exponent `alpha` is exposed as the `fxps_alpha` slider (default 0.5). See `paper.html` for the derivation.
+- HAPS (`heightAdaptiveShadow`, `shadow_type == 3`) is the height-adaptive variant that mixes alpha per-fragment based on surface height.
 
 ### Adding a new parallax technique
 
@@ -148,6 +148,6 @@ Hand-rolled, no external dependencies:
 |---|---|---|---|
 | Classic | 0 | `bump_normal.png` | `bump_diffuse.png` |
 | Bricks | 1 | `bricks_normal.png` | `bricks_diffuse.png` |
-| Rocks | 2 | `rocks_normal.png` | `rocks_difuse.png` |
+| Rocks | 2 | `rocks_normal.png` | `rocks_diffuse.png` |
 
 Each instance loads all three sets into its own GL context on startup. Texture loading is asynchronous; a solid red 1×1 pixel is used as the placeholder until the image loads.
