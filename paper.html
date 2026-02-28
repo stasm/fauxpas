@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>Fast Approximate Parallax Shadows</title>
+<style>
+math[display="block"] { display: block; margin: 1em auto; text-align: center; }
+</style>
 </head>
 <body>
 
@@ -81,7 +84,16 @@
 
 <p>For an occluder with projected cross-sectional area <em>A</em> at distance <em>d</em> from the receiver, the subtended solid angle is:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;&Omega; &asymp; <em>A</em> / <em>d</em><sup>2</sup></p>
+<math display="block">
+  <mrow>
+    <mi>Ω</mi>
+    <mo>≈</mo>
+    <mfrac>
+      <mi>A</mi>
+      <msup><mi>d</mi><mn>2</mn></msup>
+    </mfrac>
+  </mrow>
+</math>
 
 <p>This is a statement about hemispherical coverage&mdash;the fraction of the hemisphere that the occluder subtends. It governs ambient occlusion, where the shadow intensity at a point depends on how much of the omnidirectional light field is blocked by nearby geometry. It does not, strictly speaking, describe the visibility along a single directional light ray: a directional shadow is a binary event (the occluder either intersects the light vector or it does not), and the occluder&rsquo;s solid angle at the receiver is irrelevant to that binary query. But at height-field scale, as argued above, the direct light direction does not have special status&mdash;the occluder is close enough that its solid angle governs how much total light reaches the fragment.</p>
 
@@ -89,17 +101,58 @@
 
 <p>Since the ray distance <em>t</em> is directly proportional to the physical distance <em>d</em>, the desired distance-attenuation curve is:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;Attenuation &prop; <em>t</em><sup>&minus;2</sup></p>
+<math display="block">
+  <mrow>
+    <mtext>Attenuation</mtext>
+    <mo>∝</mo>
+    <msup>
+      <mi>t</mi>
+      <mrow><mo>−</mo><mn>2</mn></mrow>
+    </msup>
+  </mrow>
+</math>
 
 <h3>4.2 Validity of the Far-Field Approximation</h3>
 
 <p>The formula &Omega; &asymp; <em>A</em>/<em>d</em><sup>2</sup> assumes the occluder is small relative to the distance. The exact solid angle subtended by an arbitrary surface <em>S</em> is given by the surface integral:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;&Omega; = &int;&int;<sub><em>S</em></sub> (cos&theta; / <em>r</em><sup>2</sup>) d<em>A</em></p>
+<math display="block">
+  <mrow>
+    <mi>Ω</mi>
+    <mo>=</mo>
+    <msub><mo>∬</mo><mi>S</mi></msub>
+    <mfrac>
+      <mrow><mi>cos</mi><mo>⁡</mo><mi>θ</mi></mrow>
+      <msup><mi>r</mi><mn>2</mn></msup>
+    </mfrac>
+    <mspace width="0.17em"/>
+    <mi>d</mi><mi>A</mi>
+  </mrow>
+</math>
 
 <p>where <em>r</em> is the distance from the receiver to each area element and &theta; is the angle between the element&rsquo;s surface normal and the vector to the receiver. For specific geometries this resolves to closed-form expressions. For example, the exact solid angle of a circular disk of radius <em>R</em> at perpendicular distance <em>d</em> is:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;&Omega; = 2&pi;(1 &minus; <em>d</em> / &radic;(<em>d</em><sup>2</sup> + <em>R</em><sup>2</sup>))</p>
+<math display="block">
+  <mrow>
+    <mi>Ω</mi>
+    <mo>=</mo>
+    <mn>2</mn><mi>π</mi>
+    <mo>(</mo>
+    <mn>1</mn>
+    <mo>−</mo>
+    <mfrac>
+      <mi>d</mi>
+      <msqrt>
+        <mrow>
+          <msup><mi>d</mi><mn>2</mn></msup>
+          <mo>+</mo>
+          <msup><mi>R</mi><mn>2</mn></msup>
+        </mrow>
+      </msqrt>
+    </mfrac>
+    <mo>)</mo>
+  </mrow>
+</math>
 
 <p>When <em>d</em> &Gt; <em>R</em>, the Taylor expansion recovers &pi;<em>R</em><sup>2</sup>/<em>d</em><sup>2</sup> = <em>A</em>/<em>d</em><sup>2</sup>. In the near field (<em>d</em> &asymp; <em>R</em>), the relationship saturates as the occluder subtends a large fraction of the hemisphere. As we will see in Section 5, the square-root distribution conveniently avoids this regime: at N = 4, the first sample falls at <em>t</em> = 0.50, where the ray has already risen to half its total excursion. The far-field approximation&mdash;and therefore the directional-occlusion interpretation it motivates&mdash;is most accurate precisely where the algorithm samples.</p>
 
@@ -113,15 +166,58 @@
 
 <p>Consider the power-law family t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>. Inverting gives <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, so the weight <em>t</em><sup>&minus;2</sup> expressed in index space becomes:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>t</em><sup>&minus;2</sup> = (<em>i</em>/<em>N</em>)<sup>&minus;2&alpha;</sup></p>
+<math display="block">
+  <mrow>
+    <msup>
+      <mi>t</mi>
+      <mrow><mo>−</mo><mn>2</mn></mrow>
+    </msup>
+    <mo>=</mo>
+    <msup>
+      <mrow>
+        <mo>(</mo>
+        <mfrac><mi>i</mi><mi>N</mi></mfrac>
+        <mo>)</mo>
+      </mrow>
+      <mrow><mo>−</mo><mn>2</mn><mi>α</mi></mrow>
+    </msup>
+  </mrow>
+</math>
 
 <p>For this to reduce to the simplest possible index-space weight&mdash;1/<em>i</em>&mdash;we need &minus;2&alpha; = &minus;1, giving &alpha; = 0.5. At this exponent, the sampling distribution is the square root:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>t</em>(<em>i</em>) = &radic;(<em>i</em> / <em>N</em>)</p>
+<math display="block">
+  <mrow>
+    <mi>t</mi><mo>(</mo><mi>i</mi><mo>)</mo>
+    <mo>=</mo>
+    <msqrt>
+      <mfrac><mi>i</mi><mi>N</mi></mfrac>
+    </msqrt>
+  </mrow>
+</math>
 
 <p>and the <em>t</em><sup>&minus;2</sup> attenuation is exactly 1/<em>i</em> (up to the constant factor 1/<em>N</em>, absorbed into the normalization). The shadow contribution S is accumulated as a running maximum over the weighted depth difference:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>S</em> = max( <em>S</em>, (<em>H</em>_sample &minus; <em>H</em>_ray) / <em>i</em> )</p>
+<math display="block">
+  <mrow>
+    <mi>S</mi>
+    <mo>=</mo>
+    <mo>max</mo>
+    <mo>(</mo>
+    <mi>S</mi>
+    <mo>,</mo>
+    <mspace width="0.2em"/>
+    <mfrac>
+      <mrow>
+        <msub><mi>H</mi><mtext>sample</mtext></msub>
+        <mo>−</mo>
+        <msub><mi>H</mi><mtext>ray</mtext></msub>
+      </mrow>
+      <mi>i</mi>
+    </mfrac>
+    <mo>)</mo>
+  </mrow>
+</math>
 
 <p>For N = 4, the square-root distribution places samples at t = {0.500, 0.707, 0.866, 1.000}, compared to the linear distribution&rsquo;s t = {0.250, 0.500, 0.750, 1.000}:</p>
 
@@ -143,7 +239,34 @@
 
 <p>For the power-law family t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>, we have <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, giving sampling density d<em>i</em>/d<em>t</em> = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup>. The weight is <em>w</em> = 1/<em>i</em> = 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>). Their product:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;&rho;(<em>t</em>) = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup> &middot; 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>) = 1/(&alpha;<em>t</em>)</p>
+<math display="block">
+  <mrow>
+    <mi>ρ</mi><mo>(</mo><mi>t</mi><mo>)</mo>
+    <mo>=</mo>
+    <mfrac><mi>N</mi><mi>α</mi></mfrac>
+    <mo>·</mo>
+    <msup>
+      <mi>t</mi>
+      <mrow><mn>1</mn><mo>/</mo><mi>α</mi><mo>−</mo><mn>1</mn></mrow>
+    </msup>
+    <mo>·</mo>
+    <mfrac>
+      <mn>1</mn>
+      <mrow>
+        <mi>N</mi><mo>·</mo>
+        <msup>
+          <mi>t</mi>
+          <mrow><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
+        </msup>
+      </mrow>
+    </mfrac>
+    <mo>=</mo>
+    <mfrac>
+      <mn>1</mn>
+      <mrow><mi>α</mi><mi>t</mi></mrow>
+    </mfrac>
+  </mrow>
+</math>
 
 <p>The exponent &alpha; cancels into a constant prefactor. <strong>The 1/<em>i</em> weight produces log-uniform sensitivity for any power-law stepping function.</strong> Reparameterizing in log-space with <em>u</em> = ln(<em>t</em>), the sensitivity per unit <em>u</em> becomes &rho;(<em>t</em>) &middot; <em>t</em> = 1/&alpha;, a constant. The algorithm allocates equal attention to each multiplicative decade of distance&mdash;the interval [0.01, 0.1] receives the same total sensitivity as [0.1, 1.0].</p>
 
@@ -153,7 +276,18 @@
 
 <p>The log-uniform property reveals a single-parameter family of shadow probes: for any exponent &alpha;, the combination of power-law stepping t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup> with the 1/<em>i</em> weight produces log-uniform sensitivity. The 1/<em>i</em> weight is the unique index-space ramp that achieves this for any power-law distribution. However, the different members of this family imply different distance-attenuation curves in ray-space. Since <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, the weight expressed in ray-space is:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;1/<em>i</em> = (1/<em>N</em>) &middot; <em>t</em><sup>&minus;1/&alpha;</sup></p>
+<math display="block">
+  <mrow>
+    <mfrac><mn>1</mn><mi>i</mi></mfrac>
+    <mo>=</mo>
+    <mfrac><mn>1</mn><mi>N</mi></mfrac>
+    <mo>·</mo>
+    <msup>
+      <mi>t</mi>
+      <mrow><mo>−</mo><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
+    </msup>
+  </mrow>
+</math>
 
 <p>Only &alpha; = 0.5 gives <em>t</em><sup>&minus;2</sup>&mdash;the solid-angle falloff derived in Section 4. The linear distribution (&alpha; = 1) gives <em>t</em><sup>&minus;1</sup>, which under-attenuates with distance; higher exponents attenuate even more gently. The log-uniform property ensures that any member of the family allocates attention evenly across multiplicative decades, but only the square-root member does so while also matching the physically motivated distance-attenuation curve.</p>
 
@@ -173,11 +307,52 @@
 
 <p>For an occluder at fixed position <em>t</em>* along the ray, the nearest sample index scales as <em>i</em>* &asymp; <em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>. The raw shadow contribution is:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;&Delta;<em>H</em> / <em>i</em>* &asymp; &Delta;<em>H</em> / (<em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>)</p>
+<math display="block">
+  <mrow>
+    <mfrac>
+      <mrow><mi>Δ</mi><mi>H</mi></mrow>
+      <msup><mi>i</mi><mo>*</mo></msup>
+    </mfrac>
+    <mo>≈</mo>
+    <mfrac>
+      <mrow><mi>Δ</mi><mi>H</mi></mrow>
+      <mrow>
+        <mi>N</mi><mo>·</mo>
+        <msup>
+          <mrow><mi>t</mi><mo>*</mo></mrow>
+          <mrow><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
+        </msup>
+      </mrow>
+    </mfrac>
+  </mrow>
+</math>
 
 <p>This is inversely proportional to N. Multiplying by strength = N cancels the dependence exactly:</p>
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>S</em>_final = <em>N</em> &middot; &Delta;<em>H</em> / (<em>N</em> &middot; <em>t</em>*<sup>1/&alpha;</sup>) = &Delta;<em>H</em> / <em>t</em>*<sup>1/&alpha;</sup></p>
+<math display="block">
+  <mrow>
+    <msub><mi>S</mi><mtext>final</mtext></msub>
+    <mo>=</mo>
+    <mfrac>
+      <mrow><mi>N</mi><mo>·</mo><mi>Δ</mi><mi>H</mi></mrow>
+      <mrow>
+        <mi>N</mi><mo>·</mo>
+        <msup>
+          <mrow><mi>t</mi><mo>*</mo></mrow>
+          <mrow><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
+        </msup>
+      </mrow>
+    </mfrac>
+    <mo>=</mo>
+    <mfrac>
+      <mrow><mi>Δ</mi><mi>H</mi></mrow>
+      <msup>
+        <mrow><mi>t</mi><mo>*</mo></mrow>
+        <mrow><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
+      </msup>
+    </mfrac>
+  </mrow>
+</math>
 
 <p>The shadow response becomes <strong>independent of iteration count</strong>. N can be adjusted purely as a quality knob&mdash;no secondary strength parameter is needed. Shadow intensity remains consistent across quality levels; only the spatial resolution of occluder detection changes.</p>
 
