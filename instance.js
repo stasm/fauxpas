@@ -14,8 +14,9 @@ export function shadingTypeToInt(val) {
         case "parallax":  return 2;
         case "steep":     return 3;
         case "pom":       return 4;
-        case "iterative": return 5;
-        default:          return 0;
+        case "iterative":      return 5;
+        case "iterative_test": return 6;
+        default:               return 0;
     }
 }
 
@@ -29,6 +30,8 @@ export function shadowTypeToInt(val) {
         case "cone":       return 6;
         case "relief":     return 7;
         case "fxps":       return 8;
+        case "fxps_test":  return 9;
+        case "haps_test":  return 10;
         default:           return 0;
     }
 }
@@ -244,7 +247,8 @@ export function renderInstance(inst, time) {
         case "parallax":  parallax_samples = 1; break;
         case "steep":     parallax_samples = N; break;
         case "pom":       parallax_samples = N + 1; break;
-        case "iterative": parallax_samples = N; break;
+        case "iterative":      parallax_samples = N; break;
+        case "iterative_test": parallax_samples = N; break;
     }
     var shadow_samples = 0;
     switch (s.shadow_type) {
@@ -257,6 +261,8 @@ export function renderInstance(inst, time) {
         case "binary":     shadow_samples = S + 10; break;
         case "cone":       shadow_samples = 1 + S; break;
         case "relief":     shadow_samples = S + 7; break;
+        case "fxps_test":  shadow_samples = 1 + S; break;
+        case "haps_test":  shadow_samples = 1 + S; break;
     }
     var total_samples = parallax_samples + shadow_samples;
     var time_str = inst.frame_time_avg < 1
