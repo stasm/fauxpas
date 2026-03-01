@@ -16,9 +16,9 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 
 <p>We present Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s [2006] soft POM shadow technique that target the low-iteration regime (N = 2&ndash;4) where linear sampling breaks down. Like the original, FXPS is an empirical heuristic designed for contexts where visual plausibility matters more than physical accuracy&mdash;stylized rendering, mobile GPUs, legacy pipelines, and performance-constrained material layers.</p>
 
-<p>The technique is motivated by an observation about scale. Height-field self-shadows operate within the parallax scale&mdash;typically a few percent of tangent space&mdash;where the distinction between directional shadows and ambient occlusion breaks down. A feature that crosses the light ray but is distant in parallax terms does not plausibly darken the fragment, because light still arrives from surrounding relief&mdash;scattered, bounced, and incident from the large fraction of the hemisphere the occluder does not cover. Shadow opacity should therefore attenuate with the solid angle the occluder subtends&mdash;the <em>t</em><sup>&minus;2</sup> relationship&mdash;not merely with linear distance.</p>
+<p>The technique is motivated by an observation about scale. Height-field self-shadows operate within the parallax scale&mdash;typically a few percent of tangent space&mdash;where the distinction between directional shadows and ambient occlusion breaks down. A feature that crosses the light ray but is distant in parallax terms does not plausibly darken the fragment, because light still arrives from surrounding relief&mdash;scattered, bounced, and incident from the large fraction of the hemisphere the occluder does not cover. Drawing on the inverse-square law governing how an occluder&rsquo;s influence diminishes with distance, we adopt <em>t</em><sup>&minus;2</sup> as the shadow probe&rsquo;s distance-attenuation curve. This model targets shadowing by meso-scale height-field features under moderate-to-overhead lighting&mdash;the dominant case for parallax terrain, building walls, and surface detail&mdash;rather than own-surface occlusion at grazing light angles, which at 2&ndash;4 samples no distribution can reliably detect.</p>
 
-<p>FXPS achieves this by replacing the accumulation with a 1/<em>i</em> weighted maximum and the linear sampling distribution with a square-root function. The 1/<em>i</em> weight is the discrete analogue of <em>t</em><sup>&minus;2</sup> attenuation when samples follow a square-root distribution, and the combination produces a shadow probe with <em>log-uniform effective sensitivity</em> along the ray&mdash;equal attention to each multiplicative decade of distance. We show that this log-uniform property is invariant across a single-parameter family of power-law exponents &alpha;, but that &alpha; = 0.5 (the square-root) is the unique member whose distance-attenuation curve matches the <em>t</em><sup>&minus;2</sup> solid-angle falloff. The correct shadow strength normalization is simply N (the iteration count), making sample count a pure quality knob. The result is light-aware, distance-dependent shadow opacity with high-frequency contrast that visually reinforces the volume of the height-map geometry, and spatially soft shadow edges arising structurally from the continuous depth-difference formulation&mdash;at 2&ndash;4 iterations per fragment, a meaningful visual improvement over Tatarchuk&rsquo;s linear soft shadows or no self-shadowing at all, for the same texture fetch budget.</p>
+<p>We combine this attenuation with a second, independently motivated requirement: <em>log-uniform effective sensitivity</em>&mdash;equal attention to each multiplicative decade of distance, so that the probe does not privilege any particular range of the ray. We show that these two requirements together uniquely determine a square-root sampling distribution, t(<em>i</em>) = &radic;(<em>i</em>/<em>N</em>). In the shader, the <em>t</em><sup>&minus;2</sup> weight simplifies to 1/<em>i</em>, which we then show produces log-uniform sensitivity for <em>any</em> power-law stepping function&mdash;revealing a single-parameter family of probes, of which only the square-root member matches the <em>t</em><sup>&minus;2</sup> attenuation. The correct shadow strength normalization is simply N (the iteration count), making sample count a pure quality knob. The result is light-aware, distance-dependent shadow opacity with high-frequency contrast that visually reinforces the volume of the height-map geometry, and spatially soft shadow edges arising structurally from the continuous depth-difference formulation&mdash;at 2&ndash;4 iterations per fragment, a meaningful visual improvement over Tatarchuk&rsquo;s linear soft shadows or no self-shadowing at all, for the same texture fetch budget.</p>
 
 <h2>1. Introduction</h2>
 
@@ -26,9 +26,9 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 
 <p>At high iteration counts, this works well. At the very low sample counts demanded by mobile GPUs, legacy pipelines, and performance-constrained material layers (N = 2&ndash;4), however, the linear sampling strategy has two weaknesses. First, it distributes samples uniformly along the ray, wasting budget on regions that may be irrelevant to the local shadow topology. Second, it provides no natural mechanism for contact hardening&mdash;the perceptual property whereby shadows are darkest and sharpest near occluder-receiver contact, becoming lighter and wider with distance.</p>
 
-<p>We present Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s soft POM shadow technique that target the low-iteration regime. Like the original, FXPS is an empirical heuristic&mdash;not a physically based visibility computation&mdash;and is designed for contexts where visual plausibility matters more than physical accuracy. The improvements are:</p>
+<p>We present Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s soft POM shadow technique that target the low-iteration regime. Like the original, FXPS is an empirical heuristic&mdash;not a physically based visibility computation&mdash;and is designed for contexts where visual plausibility matters more than physical accuracy. It targets shadowing by meso-scale height-field features&mdash;ridges, ledges, brick edges&mdash;under moderate-to-overhead lighting, the dominant scenario for parallax terrain and building walls. It does not attempt to detect own-surface occlusion at grazing light angles, which requires the extended ray marches that higher sample counts afford. The improvements are:</p>
 
-<p><strong>Directional occlusion with 1/<em>i</em> weighting and square-root sampling.</strong> We observe that at height-field scale, a feature that crosses the light ray but is distant in parallax terms does not plausibly darken the fragment&mdash;light still arrives from surrounding relief. Shadow opacity should attenuate with the solid angle the occluder subtends, following the <em>t</em><sup>&minus;2</sup> relationship. We show that replacing the linear step distribution with a square-root function t(<em>i</em>) = &radic;(<em>i</em>/<em>N</em>) and the accumulation with a 1/<em>i</em> weighted maximum achieves exactly this attenuation. The combination also produces a shadow probe with <em>log-uniform effective sensitivity</em>&mdash;equal attention to each multiplicative decade of ray distance. This log-uniform property generalizes to a single-parameter family of power-law exponents, but &alpha; = 0.5 is the unique member that matches the solid-angle falloff. The square-root distribution further synergizes with normal mapping, which already provides near-field self-shadowing, by concentrating shadow samples in the far field where normal-map darkening cannot reach.</p>
+<p><strong>Square-root sampling with <em>t</em><sup>&minus;2</sup> attenuation.</strong> We observe that at height-field scale, a feature that crosses the light ray but is distant in parallax terms does not plausibly darken the fragment&mdash;light still arrives from surrounding relief. Drawing on the inverse-square law, we adopt <em>t</em><sup>&minus;2</sup> as the distance-attenuation curve. We combine this with a requirement for log-uniform effective sensitivity&mdash;equal attention to each multiplicative decade of ray distance&mdash;and show that together these uniquely determine a square-root stepping function, t(<em>i</em>) = &radic;(<em>i</em>/<em>N</em>). In the shader, the <em>t</em><sup>&minus;2</sup> weight simplifies to 1/<em>i</em>, which produces log-uniform sensitivity for any power-law stepping&mdash;but only the square-root member also matches the <em>t</em><sup>&minus;2</sup> attenuation. The square-root distribution further synergizes with normal mapping, which already provides near-field self-shadowing, by concentrating shadow samples in the far field where normal-map darkening cannot reach.</p>
 
 <p><strong>Scale-invariant normalization.</strong> Setting the shadow strength to N (the iteration count) exactly cancels the dependence of shadow intensity on sample count, making N a pure quality knob with no secondary parameter adjustment required.</p>
 
@@ -52,7 +52,7 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 </tbody>
 </table>
 
-<p>A primary design goal of FXPS is not to produce physically correct shadows but to give visual grounding to the parallax displacement effect&mdash;to reinforce the illusion that the height field has real depth by darkening the regions where light would plausibly be blocked. In this role, the shadow term serves the parallax mapping rather than competing with scene-level shadow techniques for accuracy.</p>
+<p>A primary design goal of FXPS is not to produce physically correct shadows but to give visual grounding to the parallax displacement effect&mdash;to reinforce the illusion that the height field has real depth by darkening the regions where light would plausibly be blocked. In this role, the shadow term serves the parallax mapping rather than competing with scene-level shadow techniques for accuracy. The technique is designed for the case that dominates its target applications&mdash;meso-scale feature shadows under moderate-to-overhead lighting on surfaces such as terrain, building facades, and tiled materials. At grazing light angles, where the macro surface itself becomes the occluder, Tatarchuk&rsquo;s approach benefits from scaling the ray length with the inverse of the light direction&rsquo;s surface-normal component, but this extended-ray strategy requires enough samples to maintain spatial discrimination across the longer march. At 2&ndash;4 samples, no distribution can reliably detect own-surface occlusion, and FXPS allocates its limited budget where the visual return is highest.</p>
 
 <p>This framing also reveals a benefit that extends beyond the low-iteration regime. Even when the performance budget permits higher sample counts, iterations spent on shadowing are iterations not spent on parallax displacement&mdash;and displacement quality is typically more sensitive to step count than shadow quality is. A shadowing technique that looks good at 2&ndash;4 samples frees the remaining budget for additional displacement steps, where the visual return per iteration is higher.</p>
 
@@ -72,17 +72,15 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 
 <p>Premecz [2006] proposed an iterative convergence approach that replaces the fixed-increment linear search with a step scaled by the remaining height difference and the surface normal&rsquo;s Z component. Each iteration drives the ray toward the surface proportionally to how far it still misses, with slope-aware attenuation preventing overshoot on steep faces. The technique converges on the view-ray intersection in approximately 3&ndash;4 iterations&mdash;matching the sample budget that FXPS targets for the shadow ray. Together, the two techniques form a natural pair: iterative parallax offset for accurate surface displacement, FXPS for distance-dependent soft self-shadowing, both operating in the same 3&ndash;4 sample regime and requiring no more than 8 texture fetches per fragment combined.</p>
 
-<h2>4. Directional Occlusion at Height-Field Scale</h2>
+<h2>4. Shadow Attenuation at Height-Field Scale</h2>
 
 <p>At scene scale, directional shadows and ambient occlusion are cleanly separable: an occluder can block a specific light ray while subtending negligible solid angle. A mountain range on the horizon casts a hard shadow despite covering a tiny fraction of the hemisphere. The visibility along the light ray is the only quantity that matters, and solid angle is irrelevant.</p>
 
-<p>At height-field scale, this separation breaks down. The shadow ray is bounded by the parallax scale&mdash;typically a few percent of tangent space&mdash;and at this range, a feature that happens to intersect the light vector does not plausibly darken the fragment to the degree that a binary or linearly-attenuated shadow test would imply. The occluder is real, but light still arrives from surrounding relief&mdash;scattered, bounced, and incident from the large fraction of the hemisphere the occluder does not cover. Weighting by solid-angle falloff reflects this: the shadow is proportional to the fraction of the local light environment the occluder actually blocks, which diminishes with the square of distance. Near occluders subtend a large solid angle and cast correspondingly dark shadows; distant occluders, though they may cross the light ray, leave most of the hemisphere open and cast only mild ones.</p>
+<p>At height-field scale, this separation breaks down. The shadow ray is bounded by the parallax scale&mdash;typically a few percent of tangent space&mdash;and at this range, a feature that happens to intersect the light vector does not plausibly darken the fragment to the degree that a binary or linearly-attenuated shadow test would imply. The occluder is real, but light still arrives from surrounding relief&mdash;scattered, bounced, and incident from the large fraction of the hemisphere the occluder does not cover. Shadow opacity should therefore diminish with distance along the ray: near occluders cast dark shadows; distant occluders, though they may cross the light ray, leave most of the hemisphere open and cast only mild ones.</p>
 
-<p>This motivates a specific requirement for the shadow probe&rsquo;s distance-attenuation curve: it should follow the <em>t</em><sup>&minus;2</sup> solid-angle relationship.</p>
+<h3>4.1 Choosing <em>t</em><sup>&minus;2</sup></h3>
 
-<h3>4.1 The Solid-Angle Relationship</h3>
-
-<p>For an occluder with projected cross-sectional area <em>A</em> at distance <em>d</em> from the receiver, the subtended solid angle is:</p>
+<p>The qualitative observation&mdash;that shadow opacity should fall off with distance&mdash;does not by itself prescribe a specific attenuation curve. We draw on the inverse-square law governing how much of the visible hemisphere an occluder subtends as a function of distance. For an occluder with projected cross-sectional area <em>A</em> at distance <em>d</em> from the receiver, the subtended solid angle is:</p>
 
 <math display="block">
   <mrow>
@@ -95,11 +93,11 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
   </mrow>
 </math>
 
-<p>This is a statement about hemispherical coverage&mdash;the fraction of the hemisphere that the occluder subtends. It governs ambient occlusion, where the shadow intensity at a point depends on how much of the omnidirectional light field is blocked by nearby geometry. It does not, strictly speaking, describe the visibility along a single directional light ray: a directional shadow is a binary event (the occluder either intersects the light vector or it does not), and the occluder&rsquo;s solid angle at the receiver is irrelevant to that binary query. But at height-field scale, as argued above, the direct light direction does not have special status&mdash;the occluder is close enough that its solid angle governs how much total light reaches the fragment.</p>
+<p>This relationship governs ambient occlusion, where the shadow intensity at a point depends on how much of the omnidirectional light field is blocked by nearby geometry. It does not, strictly speaking, describe the visibility along a single directional light ray, which is a binary event. But at height-field scale, as argued above, the direct light direction does not have special status&mdash;the occluder is close enough that light scattering from surrounding relief makes the fragment&rsquo;s illumination sensitive to how much of the local hemisphere is blocked, not just whether one specific ray is interrupted.</p>
 
-<p>Evaluating this solid-angle-weighted metric along the light vector produces a <em>directional occlusion</em> term: shadow opacity that is both light-aware (concentrated along the light direction, producing high-frequency contrast rather than the uniform cavity darkening of standard ambient occlusion) and distance-dependent (attenuating with the fraction of the hemisphere the occluder actually blocks). This directional-occlusion concept has precedent in production rendering, where standard ambient occlusion flattens surface detail by uniformly darkening crevices regardless of light direction. To counteract this, modern engines compute <em>directional occlusion</em> or <em>bent normals</em>&mdash;biasing the AO term toward the dominant light vector. FXPS arrives at the same concept from a different starting point: rather than computing full hemispherical AO and then biasing it toward the light, it evaluates the hemispherical-occlusion distance metric directly along the light vector, achieving a similar light-aware darkening in a single pass at minimal cost.</p>
+<p>We therefore adopt <em>t</em><sup>&minus;2</sup> as the shadow probe&rsquo;s distance-attenuation curve. This is a design choice inspired by solid-angle geometry, not a derivation from it: the probe measures depth penetration along a single ray and cannot resolve the occluder&rsquo;s actual cross-sectional area, so the correspondence with true solid-angle occlusion is approximate. What <em>t</em><sup>&minus;2</sup> provides is a steep, physically motivated falloff that produces strong contact hardening&mdash;nearby features darken aggressively, distant features contribute only mildly&mdash;consistent with the qualitative observation that at meso scale, a distant occluder leaves most of the local light environment intact.</p>
 
-<p>Since the ray distance <em>t</em> is directly proportional to the physical distance <em>d</em>, the desired distance-attenuation curve is:</p>
+<p>Since the ray distance <em>t</em> is directly proportional to the physical distance <em>d</em>, the desired attenuation is:</p>
 
 <math display="block">
   <mrow>
@@ -111,6 +109,8 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
     </msup>
   </mrow>
 </math>
+
+<p>Evaluating this attenuation along the light vector produces a <em>directional occlusion</em> term: shadow opacity that is both light-aware (concentrated along the light direction, producing high-frequency contrast rather than the uniform cavity darkening of standard ambient occlusion) and distance-dependent. This directional-occlusion concept has precedent in production rendering, where standard ambient occlusion flattens surface detail by uniformly darkening crevices regardless of light direction. To counteract this, modern engines compute <em>directional occlusion</em> or <em>bent normals</em>&mdash;biasing the AO term toward the dominant light vector. FXPS arrives at a similar effect from a different starting point: rather than computing full hemispherical AO and then biasing it toward the light, it applies an inverse-square-inspired attenuation directly along the light vector, achieving light-aware darkening in a single pass at minimal cost.</p>
 
 <h3>4.2 Validity of the Far-Field Approximation</h3>
 
@@ -154,37 +154,37 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
   </mrow>
 </math>
 
-<p>When <em>d</em> &Gt; <em>R</em>, the Taylor expansion recovers &pi;<em>R</em><sup>2</sup>/<em>d</em><sup>2</sup> = <em>A</em>/<em>d</em><sup>2</sup>. In the near field (<em>d</em> &asymp; <em>R</em>), the relationship saturates as the occluder subtends a large fraction of the hemisphere. As we will see in Section 5, the square-root distribution conveniently avoids this regime: at N = 4, the first sample falls at <em>t</em> = 0.50, where the ray has already risen to half its total excursion. The far-field approximation&mdash;and therefore the directional-occlusion interpretation it motivates&mdash;is most accurate precisely where the algorithm samples.</p>
+<p>When <em>d</em> &Gt; <em>R</em>, the Taylor expansion recovers &pi;<em>R</em><sup>2</sup>/<em>d</em><sup>2</sup> = <em>A</em>/<em>d</em><sup>2</sup>. In the near field (<em>d</em> &asymp; <em>R</em>), the relationship saturates as the occluder subtends a large fraction of the hemisphere. As we will see in Section 5, the square-root distribution conveniently avoids this regime: at N = 4, the first sample falls at <em>t</em> = 0.50, where the ray has already risen to half its total excursion. The far-field approximation is most accurate precisely where the algorithm samples.</p>
 
 <h2>5. The FXPS Shadow Probe</h2>
 
-<p>Section 4 established that the shadow probe&rsquo;s distance-attenuation curve should follow <em>t</em><sup>&minus;2</sup>. We now show how to achieve this with a simple modification to Tatarchuk&rsquo;s soft shadow loop.</p>
+<p>Section 4 established <em>t</em><sup>&minus;2</sup> as the desired distance-attenuation curve. We now introduce a second, independently motivated requirement and show that together they uniquely determine the sampling distribution.</p>
 
-<h3>5.1 From <em>t</em><sup>&minus;2</sup> Attenuation to 1/<em>i</em> Weighting</h3>
+<h3>5.1 Two Requirements</h3>
 
-<p>We want each sample&rsquo;s contribution to be weighted by <em>t</em><sup>&minus;2</sup>, where <em>t</em> is the sample&rsquo;s position along the ray. In Tatarchuk&rsquo;s framework, samples are indexed by the loop counter <em>i</em> = 1, 2, &hellip;, N, and the weight must be expressible as a function of <em>i</em> alone for simplicity. The question is: what sampling distribution t(<em>i</em>) allows the <em>t</em><sup>&minus;2</sup> attenuation to be expressed as a simple function of <em>i</em>?</p>
+<p><strong>Requirement A: <em>t</em><sup>&minus;2</sup> distance attenuation.</strong> Each sample&rsquo;s contribution should be weighted by <em>t</em><sup>&minus;2</sup>, where <em>t</em> is the sample&rsquo;s position along the ray. This is the attenuation derived in Section 4.</p>
 
-<p>Consider the power-law family t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>. Inverting gives <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, so the weight <em>t</em><sup>&minus;2</sup> expressed in index space becomes:</p>
+<p><strong>Requirement B: Log-uniform effective sensitivity.</strong> The probe does not know in advance where along the ray an occluder may lie. A principled sampling criterion for such a blind search is <em>scale invariance</em>: the probe should allocate equal attention to each multiplicative decade of distance, so that it does not privilege any particular range of the ray. In the continuous limit, this means the effective sensitivity&mdash;the product of sampling density and weight&mdash;should satisfy:</p>
 
-<math display="block">
-  <mrow>
-    <msup>
-      <mi>t</mi>
-      <mrow><mo>−</mo><mn>2</mn></mrow>
-    </msup>
-    <mo>=</mo>
-    <msup>
-      <mrow>
-        <mo>(</mo>
-        <mfrac><mi>i</mi><mi>N</mi></mfrac>
-        <mo>)</mo>
-      </mrow>
-      <mrow><mo>−</mo><mn>2</mn><mi>α</mi></mrow>
-    </msup>
-  </mrow>
-</math>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&rho;(<em>t</em>) = d<em>i</em>/d<em>t</em> &middot; <em>w</em>(<em>t</em>) = <em>C</em> / <em>t</em></p>
 
-<p>For this to reduce to the simplest possible index-space weight&mdash;1/<em>i</em>&mdash;we need &minus;2&alpha; = &minus;1, giving &alpha; = 0.5. At this exponent, the sampling distribution is the square root:</p>
+<p>for some constant <em>C</em>. Reparameterizing in log-space with <em>u</em> = ln(<em>t</em>), the sensitivity per unit <em>u</em> becomes &rho;(<em>t</em>) &middot; <em>t</em> = <em>C</em>, a constant. The probe allocates equal attention to the interval [0.01, 0.1] as to [0.1, 1.0].</p>
+
+<h3>5.2 Deriving the Sampling Distribution</h3>
+
+<p>With the weight fixed at <em>w</em>(<em>t</em>) = <em>t</em><sup>&minus;2</sup> (Requirement A), the log-uniform condition (Requirement B) becomes:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;d<em>i</em>/d<em>t</em> &middot; <em>t</em><sup>&minus;2</sup> = <em>C</em> / <em>t</em></p>
+
+<p>Solving for the sampling density:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;d<em>i</em>/d<em>t</em> = <em>C</em> &middot; <em>t</em></p>
+
+<p>Integrating with the boundary condition <em>i</em>(0) = 0 and <em>i</em>(1) = <em>N</em>:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>i</em> = <em>N</em> &middot; <em>t</em><sup>2</sup></p>
+
+<p>Inverting gives the stepping function:</p>
 
 <math display="block">
   <mrow>
@@ -196,7 +196,7 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
   </mrow>
 </math>
 
-<p>and the <em>t</em><sup>&minus;2</sup> attenuation is exactly 1/<em>i</em> (up to the constant factor 1/<em>N</em>, absorbed into the normalization). The shadow contribution S is accumulated as a running maximum over the weighted depth difference:</p>
+<p>This is the square-root distribution, and it was not chosen&mdash;it was determined by the two requirements. The shadow contribution S is accumulated as a running maximum over the weighted depth difference:</p>
 
 <math display="block">
   <mrow>
@@ -227,81 +227,39 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 <tr><td>1.0</td><td>linear</td><td>0.250</td><td>0.500</td><td>0.750</td><td>1.000</td></tr>
 </table>
 
+<p>[<a href="appendix.html#fig3">Figure 1</a>: Discrete sample placement and weights for N = 4, sqrt vs. linear.]</p>
+
+<p>[<a href="appendix.html#fig1">Figure 2</a>: Effective sensitivity &rho;(t) and sensitivity per log-decade.]</p>
+
+<h3>5.3 Simplification to 1/<em>i</em></h3>
+
+<p>With sqrt stepping, <em>t</em> = &radic;(<em>i</em>/<em>N</em>), so the weight <em>t</em><sup>&minus;2</sup> = <em>N</em>/<em>i</em>. The factor of <em>N</em> is absorbed into the strength normalization (Section 6), leaving the per-sample weight as simply 1/<em>i</em>:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;<em>S</em> = max( <em>S</em>, (<em>H</em>_sample &minus; <em>H</em>_ray) / <em>i</em> )</p>
+
+<p>This is the form used in the shader. The 1/<em>i</em> weight is not an independent design choice&mdash;it is what <em>t</em><sup>&minus;2</sup> attenuation reduces to under sqrt stepping.</p>
+
+<h3>5.4 The Power-Law Family</h3>
+
+<p>The simplification to 1/<em>i</em> reveals a broader structure. The square-root is a member of the power-law family t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>, and it turns out that the 1/<em>i</em> weight produces log-uniform sensitivity for <em>any</em> member of this family, not just &alpha; = 0.5. To see this, note that for general &alpha;, the sampling density is d<em>i</em>/d<em>t</em> = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup> and the weight is 1/<em>i</em> = 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>). Their product:</p>
+
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&rho;(<em>t</em>) = 1/(&alpha;<em>t</em>)</p>
+
+<p>The exponent &alpha; cancels into a constant prefactor. <strong>The 1/<em>i</em> weight produces log-uniform sensitivity for any power-law stepping function.</strong> However, the different members of this family imply different distance-attenuation curves in ray-space. Since <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, the weight 1/<em>i</em> expressed in ray-space is (1/<em>N</em>) &middot; <em>t</em><sup>&minus;1/&alpha;</sup>. Only &alpha; = 0.5 gives <em>t</em><sup>&minus;2</sup>&mdash;the attenuation we chose in Section 4. The linear distribution (&alpha; = 1) gives <em>t</em><sup>&minus;1</sup>; higher exponents attenuate even more gently. The log-uniform property ensures that any member of the family allocates attention evenly across multiplicative decades, but only the square-root member does so while also matching the <em>t</em><sup>&minus;2</sup> attenuation.</p>
+
+<h3>5.5 Discrete Behavior</h3>
+
 <p>The four samples carry weights {1, 1/2, 1/3, 1/4} for i = {1, 2, 3, 4}. Weight 1 is assigned to t = 0.50, weight 0.25 to t = 1.00&mdash;a 4:1 ratio across a 2:1 distance range. This steep falloff produces an opacity gradient where nearby occluders cast darker shadows than distant ones, partially resembling contact hardening across the [0.5, 1.0] band. Note that this is not detecting true contact shadows&mdash;the entire [0, 0.5) range is unsampled, and no amount of weight amplification can detect an occluder at a position that was never queried.</p>
 
-<p>[<a href="appendix.html#fig5">Figure 1</a>: Distance attenuation with the 1/i weight at &alpha; = 0.5.]</p>
+<p>An important caveat: the log-uniform property is a statement about the continuous limit. At very low iteration counts, the discrete sample placement dominates behavior. The visual result at low N is driven as much by the discrete weight gradient as by the continuous log-uniform property. The continuous analysis nevertheless justifies the <em>choice</em> of 1/<em>i</em> as the weighting function: it is the unique weight that produces log-uniform sensitivity in the limit, and it provides a principled starting point from which the discrete behavior inherits its favorable gradient.</p>
 
-<p>[<a href="appendix.html#fig3">Figure 2</a>: Discrete sample placement and weights for N = 4, sqrt vs. linear.]</p>
+<p>[<a href="appendix.html#fig5">Figure 3</a>: Distance attenuation with the 1/i weight at &alpha; = 0.5.]</p>
 
-<h3>5.2 Log-Uniform Sensitivity</h3>
-
-<p>The combination of square-root sampling and 1/<em>i</em> weighting has a further desirable property: <em>log-uniform effective sensitivity</em>. The effective sensitivity of the probe is the product of sampling density in ray-space and the weight applied at each sample.</p>
-
-<p>For the power-law family t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup>, we have <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, giving sampling density d<em>i</em>/d<em>t</em> = (<em>N</em>/&alpha;) &middot; <em>t</em><sup>1/&alpha; &minus; 1</sup>. The weight is <em>w</em> = 1/<em>i</em> = 1/(<em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>). Their product:</p>
-
-<math display="block">
-  <mrow>
-    <mi>ρ</mi><mo>(</mo><mi>t</mi><mo>)</mo>
-    <mo>=</mo>
-    <mfrac><mi>N</mi><mi>α</mi></mfrac>
-    <mo>·</mo>
-    <msup>
-      <mi>t</mi>
-      <mrow><mn>1</mn><mo>/</mo><mi>α</mi><mo>−</mo><mn>1</mn></mrow>
-    </msup>
-    <mo>·</mo>
-    <mfrac>
-      <mn>1</mn>
-      <mrow>
-        <mi>N</mi><mo>·</mo>
-        <msup>
-          <mi>t</mi>
-          <mrow><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
-        </msup>
-      </mrow>
-    </mfrac>
-    <mo>=</mo>
-    <mfrac>
-      <mn>1</mn>
-      <mrow><mi>α</mi><mi>t</mi></mrow>
-    </mfrac>
-  </mrow>
-</math>
-
-<p>The exponent &alpha; cancels into a constant prefactor. <strong>The 1/<em>i</em> weight produces log-uniform sensitivity for any power-law stepping function.</strong> Reparameterizing in log-space with <em>u</em> = ln(<em>t</em>), the sensitivity per unit <em>u</em> becomes &rho;(<em>t</em>) &middot; <em>t</em> = 1/&alpha;, a constant. The algorithm allocates equal attention to each multiplicative decade of distance&mdash;the interval [0.01, 0.1] receives the same total sensitivity as [0.1, 1.0].</p>
-
-<p>[<a href="appendix.html#fig1">Figure 3</a>: Effective sensitivity &rho;(t) and sensitivity per log-decade.]</p>
-
-<h3>5.3 The Power-Law Family</h3>
-
-<p>The log-uniform property reveals a single-parameter family of shadow probes: for any exponent &alpha;, the combination of power-law stepping t(<em>i</em>) = (<em>i</em>/<em>N</em>)<sup>&alpha;</sup> with the 1/<em>i</em> weight produces log-uniform sensitivity. The 1/<em>i</em> weight is the unique index-space ramp that achieves this for any power-law distribution. However, the different members of this family imply different distance-attenuation curves in ray-space. Since <em>i</em> = <em>N</em> &middot; <em>t</em><sup>1/&alpha;</sup>, the weight expressed in ray-space is:</p>
-
-<math display="block">
-  <mrow>
-    <mfrac><mn>1</mn><mi>i</mi></mfrac>
-    <mo>=</mo>
-    <mfrac><mn>1</mn><mi>N</mi></mfrac>
-    <mo>·</mo>
-    <msup>
-      <mi>t</mi>
-      <mrow><mo>−</mo><mn>1</mn><mo>/</mo><mi>α</mi></mrow>
-    </msup>
-  </mrow>
-</math>
-
-<p>Only &alpha; = 0.5 gives <em>t</em><sup>&minus;2</sup>&mdash;the solid-angle falloff derived in Section 4. The linear distribution (&alpha; = 1) gives <em>t</em><sup>&minus;1</sup>, which under-attenuates with distance; higher exponents attenuate even more gently. The log-uniform property ensures that any member of the family allocates attention evenly across multiplicative decades, but only the square-root member does so while also matching the physically motivated distance-attenuation curve.</p>
-
-<h3>5.4 Soft Shadow Edges</h3>
+<h3>5.6 Soft Shadow Edges</h3>
 
 <p>Both FXPS and Tatarchuk&rsquo;s original technique produce spatially soft shadow edges, owing to the continuous depth-difference formulation they share (Section 3.2). The output clamp(1 &minus; <em>N</em> &middot; <em>S</em>, 0, 1) is a linear ramp, not a step function. At a shadow boundary, there is always a spatial band of fragments where the occluder just barely rises above the ray&mdash;a small positive depth difference that maps to a partial shadow value. This softness is structural: it is a property of the formulation itself and holds regardless of texture filtering mode. The width of the soft transition zone depends on the height-field gradient and the light angle, but not on occluder distance or light source extent&mdash;a distinction from true penumbrae explored further in Section 9.</p>
 
 <p>[<a href="appendix.html#fig4">Figure 4</a>: Depth-difference formulation produces soft shadow edges.]</p>
-
-<h3>5.5 The Continuous-Discrete Gap</h3>
-
-<p>An important caveat: the log-uniform property is a statement about the continuous limit. At very low iteration counts, the discrete sample placement dominates behavior. With &alpha; = 0.5 and N = 4, the first sample falls at t = 0.50&mdash;the entire [0, 0.5) range is unsampled. The four samples have weights 1, 1/2, 1/3, 1/4, forming a monotonically decreasing discrete ramp over the [0.5, 1.0] band. The visual result at low N is driven as much by this discrete weight gradient as by the continuous log-uniform property.</p>
-
-<p>The continuous analysis nevertheless justifies the <em>choice</em> of 1/<em>i</em> as the weighting function: it is the unique weight that produces log-uniform sensitivity in the limit, and it provides a principled starting point from which the discrete behavior inherits its favorable gradient.</p>
 
 <h2>6. Scale-Invariant Normalization</h2>
 
@@ -362,7 +320,7 @@ math[display="block"] { display: block; margin: 1em auto; text-align: center; }
 
 <h2>7. Synergy with Normal Mapping</h2>
 
-<p>Beyond the geometric derivation, several practical properties reinforce the choice of &alpha; = 0.5 at the meso scale where POM operates.</p>
+<p>Several practical properties reinforce the choice of &alpha; = 0.5 at the meso scale where POM operates.</p>
 
 <p><strong>Complementarity with normal-map darkening.</strong> In any pipeline that uses normal maps alongside height maps, the perturbed Lambertian term &langle;<strong>n&prime;</strong> &middot; <strong>l</strong>&rangle; already darkens fragments whose surface normal faces away from the light. This provides effective near-field self-shadowing for free: a small bump adjacent to the shading point darkens it through normal-map orientation, producing the same visual effect that a near-field shadow sample would detect. &alpha; = 0.5 avoids this redundancy by placing all samples in the far field (t &ge; 0.5 at N = 4), where it detects occluders that no amount of normal-map darkening can capture&mdash;a distant feature blocking light to a surface patch that locally faces the light.</p>
 
@@ -405,16 +363,16 @@ float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
     for (int i = 1; i &lt;= PARALLAX_SHADOW_ITERATIONS; i++)
     {
         // Square-root distribution: clusters samples in far field,
-        // complementing normal-map darkening in the near field
+        // complementing normal-map darkening in the near field.
         float t = sqrt(float(i) / float(PARALLAX_SHADOW_ITERATIONS));
         float rayHeight = surfaceHeight + step.z * t;
         float sampleHeight = texture2D(heightSampler, uv + step.xy * t).a;
-        // Combined with sqrt sampling, 1/i yields t^{-2} distance attenuation
-        // matching solid-angle falloff — directional occlusion along the light ray.
+        // 1/i is t^{-2} attenuation under sqrt stepping, inspired by
+        // inverse-square falloff at meso scale.
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
-    // Using N as strength makes iteration count a pure quality parameter
+    // Using N as strength makes iteration count a pure quality parameter.
     return clamp(1.0 - shadow * float(PARALLAX_SHADOW_ITERATIONS), 0.0, 1.0);
 }</code></pre>
 
@@ -422,13 +380,13 @@ float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
 
 <h2>9. Limitations and Future Work</h2>
 
-<p>The derivation of &alpha; = 0.5 from solid-angle falloff (Section 4) relies on two assumptions. First, the far-field approximation &Omega; &asymp; <em>A</em>/<em>d</em><sup>2</sup>, which assumes the occluder is small relative to its distance from the receiver; for height fields with very large-scale features where this breaks down, other values of &alpha; may produce better results. Second, the directional-occlusion interpretation is motivated by the observation that at height-field scale, light arrives from surrounding relief even when the primary light source is blocked. This holds in any environment with ambient fill, skylight, indirect bounce, or simply non-trivial height-field topology that scatters light. In the limiting case of a single directional light illuminating a flat plane with isolated height features and no ambient contribution, the scattered-light assumption does not apply, and the technique reduces to a heuristic distance-weighted depth test. In practice, even minimal ambient light is sufficient for the perceptual effect to hold, and the technique remains visually effective in such settings even if the physical justification is weaker. A systematic evaluation across a wider range of height-map types and lighting configurations would clarify the boundaries of applicability.</p>
+<p>The choice of <em>t</em><sup>&minus;2</sup> attenuation (Section 4) is inspired by the inverse-square law of solid-angle falloff but is not a strict derivation from it. The probe measures depth penetration along a single ray and cannot resolve the occluder&rsquo;s cross-sectional area; the correspondence with true solid-angle occlusion is therefore approximate. The meso-scale argument&mdash;that at height-field scale, a distant occluder does not plausibly darken the fragment because light arrives from surrounding relief&mdash;holds in any environment with ambient fill, skylight, indirect bounce, or simply non-trivial height-field topology that scatters light. In the limiting case of a single directional light illuminating a flat plane with isolated height features and no ambient contribution, the scattered-light assumption does not apply, and the technique reduces to a heuristic distance-weighted depth test. In practice, even minimal ambient light is sufficient for the perceptual effect to hold, and the technique remains visually effective in such settings even if the geometric inspiration is weaker. A systematic evaluation across a wider range of height-map types and lighting configurations would clarify the boundaries of applicability.</p>
 
-<p>More broadly, the directional-occlusion model assumes that shadowing is caused by localized height-field features&mdash;ridges, ledges, bumps&mdash;that subtend a limited solid angle. At grazing light angles where the light direction is nearly parallel to or below the macro surface, this assumption breaks down: the &ldquo;occluder&rdquo; is the macro surface itself, extending across the full ray length and blocking light comprehensively. In this regime, the <em>t</em><sup>&minus;2</sup> attenuation underestimates shadow intensity because the solid-angle model treats a surface-spanning obstruction as if it were a distant small feature. Tatarchuk&rsquo;s linear distribution handles this case better, as its uniform sampling detects the consistent height-field penetration across the full ray without discounting distant samples. In practice, fragments at grazing angles are typically darkened by the macro Lambertian term &langle;<strong>N</strong> &middot; <strong>l</strong>&rangle;, which provides gross orientation-based darkening. However, the Lambertian term alone cannot reproduce the fine discrimination that linear ray marching achieves&mdash;keeping protruding features lit while shadowing the recessed surface&mdash;and this remains a configuration where FXPS underperforms relative to the baseline it improves upon at other angles.</p>
+<p>More broadly, the attenuation model assumes that shadowing is caused by localized height-field features&mdash;ridges, ledges, bumps&mdash;rather than by the macro surface itself. At grazing light angles where the light direction is nearly parallel to or below the macro surface, this assumption breaks down: the &ldquo;occluder&rdquo; is the macro surface itself, extending across the full ray length and blocking light comprehensively. In this regime, the <em>t</em><sup>&minus;2</sup> attenuation underestimates shadow intensity because it treats a surface-spanning obstruction as if it were a distant small feature. Tatarchuk&rsquo;s approach handles this better for two reasons: its uniform sampling detects consistent height-field penetration across the full ray without discounting distant samples, and the ray length scales with the inverse of the light direction&rsquo;s surface-normal component, extending the probe at grazing angles to cover more of the surface. However, this extended-ray strategy requires enough samples to maintain spatial discrimination across the longer march&mdash;at the 2&ndash;4 step counts FXPS targets, no sampling distribution can reliably detect own-surface occlusion at grazing angles. FXPS explicitly rejects this as a design goal and instead focuses on making minimal sample counts look better than generic soft POM can at the light angles that dominate typical use&mdash;parallax terrain, building walls, and surface detail under moderate-to-overhead lighting, where the range of angles at which this limitation is noticeable is small. Fragments at grazing angles are in any case darkened by the macro Lambertian term &langle;<strong>N</strong> &middot; <strong>l</strong>&rangle;.</p>
 
 <p>At N = 2, the technique still produces usable results with subtle banding, but the probe has very limited spatial discrimination. Performance profiling across GPU architectures, particularly regarding texture cache coherence of the non-linear sampling pattern, would clarify the practical cost-quality trade-off.</p>
 
-<p>The technique approximates the <em>opacity</em> component of contact hardening&mdash;nearby occluders produce darker shadows than distant ones, owing to the 1/<em>i</em> weight falloff&mdash;and produces genuinely soft shadow edges through the continuous depth-difference formulation. Because the output is a linear ramp (not a binary threshold), any region where the occluder just barely rises above the ray maps to a partial shadow, creating a gradual spatial transition from lit to shadowed. This softness is structural&mdash;it is a property of the formulation itself and holds regardless of texture filtering mode. However, the edge width is governed by the local height-field gradient and the light angle, not by occluder distance or light source extent. In real penumbrae, shadow edges widen with distance from the occluder; in FXPS, a distant occluder and a nearby occluder with the same height-field gradient profile produce edges of the same width. The technique therefore captures two of the three components of realistic contact hardening (opacity falloff and spatial softness) but not the third (distance-dependent penumbra widening).</p>
+<p>The technique approximates the <em>opacity</em> component of contact hardening&mdash;nearby occluders produce darker shadows than distant ones, owing to the <em>t</em><sup>&minus;2</sup> falloff&mdash;and produces genuinely soft shadow edges through the continuous depth-difference formulation. Because the output is a linear ramp (not a binary threshold), any region where the occluder just barely rises above the ray maps to a partial shadow, creating a gradual spatial transition from lit to shadowed. This softness is structural&mdash;it is a property of the formulation itself and holds regardless of texture filtering mode. However, the edge width is governed by the local height-field gradient and the light angle, not by occluder distance or light source extent. In real penumbrae, shadow edges widen with distance from the occluder; in FXPS, a distant occluder and a nearby occluder with the same height-field gradient profile produce edges of the same width. The technique therefore captures two of the three components of realistic contact hardening (opacity falloff and spatial softness) but not the third (distance-dependent penumbra widening).</p>
 
 <p>Future work could investigate extending the 1/<em>i</em> invariant to non-power-law step functions with appropriately derived weights, or combining FXPS with screen-space techniques that could provide the missing distance-dependent edge widening.</p>
 
@@ -436,7 +394,7 @@ float getParallaxShadow(sampler2D heightSampler, vec2 uv, vec3 lightDir)
 
 <p>We have presented Fast Approximate Parallax Shadows (FXPS), a set of improvements to Tatarchuk&rsquo;s [2006] soft POM shadow technique targeting the low-iteration regime. Like the original, FXPS is an empirical heuristic that does not aspire to physical accuracy; it is designed for the bottom of the cost spectrum&mdash;stylized rendering, mobile GPUs, legacy forward pipelines, and any context where visual plausibility at 2&ndash;4 texture fetches matters more than ground-truth visibility.</p>
 
-<p>The technique is grounded in an observation about scale: height-field self-shadows operate within the parallax scale, where a distant occluder that crosses the light ray leaves most of the local hemisphere open and does not plausibly darken the fragment. Shadow opacity should therefore attenuate with the solid angle the occluder subtends&mdash;the <em>t</em><sup>&minus;2</sup> relationship. We showed that replacing the accumulation with a 1/<em>i</em> weighted maximum and the linear sampling distribution with a square-root function achieves exactly this attenuation, and that the combination produces a shadow probe with log-uniform effective sensitivity along the ray. This log-uniform property generalizes to a single-parameter family of power-law exponents, but &alpha; = 0.5 is the unique member that matches the solid-angle falloff&mdash;and the only one whose sample placement complements normal-map darkening at the meso scale. Setting the shadow strength to N makes iteration count a pure quality knob independent of all other parameters.</p>
+<p>The technique is grounded in an observation about scale: height-field self-shadows operate within the parallax scale, where a distant occluder that crosses the light ray leaves most of the local hemisphere open and does not plausibly darken the fragment. Drawing on the inverse-square law, we adopted <em>t</em><sup>&minus;2</sup> as the distance-attenuation curve and combined it with a requirement for log-uniform effective sensitivity&mdash;scale-invariant attention allocation along the ray. We showed that these two requirements together uniquely determine a square-root sampling distribution. In the shader, the <em>t</em><sup>&minus;2</sup> weight simplifies to 1/<em>i</em>, which produces log-uniform sensitivity for any power-law stepping&mdash;but only the square-root member also matches the <em>t</em><sup>&minus;2</sup> attenuation. The square-root distribution further complements normal-map darkening at the meso scale by concentrating samples in the far field. Setting the shadow strength to N makes iteration count a pure quality knob independent of all other parameters.</p>
 
 <p>Against the realistic baseline comparison&mdash;Tatarchuk&rsquo;s original linear soft shadows, hard POM shadows, simple N&middot;L darkening, or no self-shadowing at all&mdash;FXPS offers a meaningful visual improvement for the same texture fetch budget. It requires no precomputed data, no temporal accumulation, and no parameter tuning. For pipelines that need self-shadowing to look good rather than be correct, it is a practical and effective tool.</p>
 
