@@ -374,14 +374,13 @@ function draw() {
     ctx.save();
     ctx.beginPath(); ctx.rect(LX, TY, RX - LX, BY - TY); ctx.clip();
 
-    // Ray (dashed, extend slightly past t=1)
+    // Ray (dashed)
     {
-        const ext = 1.25;
         ctx.strokeStyle = '#d4700e'; ctx.lineWidth = 1.5;
         ctx.setLineDash([5, 4]);
         ctx.beginPath();
         ctx.moveTo(xs(fragUV),            ys(surfH));
-        ctx.lineTo(xs(fragUV + stepX * ext), ys(surfH + stepZ * ext));
+        ctx.lineTo(xs(fragUV + stepX), ys(surfH + stepZ));
         ctx.stroke();
         ctx.setLineDash([]);
     }
