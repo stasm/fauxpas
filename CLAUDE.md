@@ -32,6 +32,7 @@ Open `index.html` in a browser. Click any canvas to pause/resume rotation.
 | `webgl-utils.js` | `get_shader`, `load_texture` helpers |
 | `matrix.js` | Hand-rolled 4×4 matrix library |
 | `index.html` | Canvas strip + controls UI |
+| `interactive.html` | Interactive Canvas 2D FXPS shadow visualizer (open directly, no server needed) |
 | `paper.html` | FXPS paper (text only) |
 | `appendix.html` | FXPS paper figures (Canvas 2D rendered) |
 | `serve.py` | Dev HTTP server that adds COOP/COEP headers |
@@ -155,3 +156,26 @@ Hand-rolled, no external dependencies:
 | Rocks | 2 | `rocks_normal.png` | `rocks_diffuse.png` |
 
 Each instance loads all three sets into its own GL context on startup. Texture loading is asynchronous; a solid red 1×1 pixel is used as the placeholder until the image loads.
+
+### interactive.html — FXPS visualizer
+
+A self-contained Canvas 2D pedagogical tool. No server required (no texture loading). Open directly in a browser.
+
+Mirrors `fastApproximateShadow()` from `shaders.js` exactly in JS. State object `S` holds all parameters; `computeFXPS()` is the pure algorithm function; `draw()` renders everything.
+
+**Controls:** terrain profile, `depth_scale`, `shadow_steps` N, `fxps_alpha` α, light angle from vertical, normalize-by-lightDir.z toggle.
+
+**Terrain profiles** (defined in `TERRAINS` object, dispatched via `S.terrain`):
+
+| Key | Description |
+|---|---|
+| `Ridge` | Complex profile matching `appendix.html` figures 4/5 |
+| `Bump` | Single Gaussian — simplest shadow geometry |
+| `TwoBumps` | Two bumps of different height — tests which occluder wins |
+| `Steps` | Two ascending sigmoid steps — clean shadow boundaries |
+| `Sine` | Periodic — shows shadow patterns across repeated features |
+
+**Key design notes:**
+- Chart area is square (380×380 px, `LX=52 RX=432 TY=26 BY=406`) so 1 UV unit = 1 height unit visually and the light direction indicator needs no aspect correction.
+- The normalize toggle changes `div = cosT` vs `div = 1.0` in the step computation, making `stepZ` always equal to `depth_scale` (full height traversal) when enabled.
+- The visibility strip below the chart sweeps all UV positions and is recomputed on every draw.
