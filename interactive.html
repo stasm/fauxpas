@@ -254,9 +254,10 @@ function drawShadowStrip() {
     for (let k = 0; k < SAMPLES; k++) {
         const u = k / SAMPLES;
         const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize);
-        const r = Math.round(210 * (1 - visibility));
-        const g = Math.round(170 * visibility);
-        ctx.fillStyle = `rgb(${r},${g},50)`;
+        const r = Math.round(230 * visibility);
+        const g = Math.round(190 * visibility);
+        const b = Math.round(60 * visibility);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(LX + k * W / SAMPLES, STRIP_Y, Math.ceil(W / SAMPLES) + 1, STRIP_H);
     }
     // border
@@ -286,9 +287,10 @@ function drawBrightnessStrip() {
         const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize);
         const { nm } = computeNdotL(u, theta);
         const v = visibility * nm;
-        const r = Math.round(210 * (1 - v));
-        const g = Math.round(170 * v);
-        ctx.fillStyle = `rgb(${r},${g},50)`;
+        const r = Math.round(230 * v);
+        const g = Math.round(190 * v);
+        const b = Math.round(60 * v);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(LX + k * W / SAMPLES, STRIP_Y, Math.ceil(W / SAMPLES) + 1, STRIP_H);
     }
     // border
@@ -502,20 +504,19 @@ function draw() {
 }
 
 // ── Info panel ────────────────────────────────────────────────────────────
-function hsv(v) {   // visibility 0..1 → rgb string
-    const r = Math.round(210 * (1 - v)), g = Math.round(170 * v);
-    return `rgb(${r},${g},50)`;
+function paperColor(v) {   // visibility 0..1 → rgb string (black → warm yellow)
+    return `rgb(${Math.round(230*v)},${Math.round(190*v)},${Math.round(60*v)})`;
 }
 
 function updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, stepX, stepZ) {
     const pct = (visibility * 100).toFixed(1);
     const barW = Math.round(visibility * 200);
-    const col  = hsv(visibility);
+    const col  = paperColor(visibility);
 
     let html = `<div style="margin-bottom:6px;">
         <b>Fragment</b>: UV = ${fragUV.toFixed(4)}, height = ${surfH.toFixed(4)},
         visibility =
-        <span style="background:${col};color:white;padding:1px 7px;border-radius:3px;font-weight:bold;">${pct}%</span>
+        <span style="background:${col};color:${visibility>0.4?'#1a1000':'#e8d070'};padding:1px 7px;border-radius:3px;font-weight:bold;">${pct}%</span>
         &nbsp;
         <span style="display:inline-block;width:${barW}px;height:10px;background:${col};vertical-align:middle;border-radius:2px;"></span><span style="display:inline-block;width:${200-barW}px;height:10px;background:#bbb;vertical-align:middle;border-radius:2px;"></span>
     </div>`;
