@@ -90,6 +90,7 @@ input[type=range] { flex: 1; min-width: 80px; }
             <option value="TwoBumps">Two bumps</option>
             <option value="Steps">Steps</option>
             <option value="Sine">Sine</option>
+            <option value="BumpNorm">bump_normal.png (row 80)</option>
         </select>
     </div>
     <div class="ctrl-row">
@@ -166,6 +167,16 @@ const TERRAINS = {
     },
     // Periodic sine — shows how shadows pattern across repeated features
     Sine: x => 0.38 + 0.30 * Math.sin(x * Math.PI * 5 - Math.PI * 0.3),
+    // Sampled alpha channel of bump_normal.png at y=80 (64 pts, every 4 px)
+    // Left bevel wall → floor → circle bump → floor → pyramid → floor → right bevel
+    BumpNorm: (() => {
+        const d = [0.737,1.000,1.000,0.996,0.875,0.741,0.612,0.482,0.357,0.216,0.157,0.161,0.161,0.161,0.157,0.259,0.514,0.780,0.969,0.957,0.957,0.961,0.961,0.965,0.941,0.690,0.424,0.176,0.161,0.161,0.165,0.165,0.161,0.165,0.165,0.165,0.165,0.161,0.278,0.416,0.541,0.678,0.816,0.855,0.855,0.741,0.608,0.475,0.353,0.216,0.161,0.169,0.165,0.165,0.161,0.255,0.392,0.510,0.643,0.776,0.910,1.000,0.996,1.000];
+        return x => {
+            x = Math.max(0, Math.min(1, x));
+            const t = x * (d.length - 1), i = Math.floor(t), f = t - i;
+            return i >= d.length - 1 ? d[d.length - 1] : d[i] + (d[i + 1] - d[i]) * f;
+        };
+    })(),
 };
 
 function terrain(x) {
