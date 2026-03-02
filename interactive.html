@@ -450,17 +450,18 @@ function draw() {
     }
     ctx.fillText('UV coordinate', (LX + RX) / 2, BY + 30);
 
-    // Y axis
+    // Y axis  (labels in actual displacement units: raw_h × depth_scale)
+    const yDec = depthScale < 0.01 ? 4 : depthScale < 0.1 ? 3 : 2;
     ctx.textAlign = 'right';
     for (let g = 0; g <= 10; g++) {
         const gy = ys(g / 10);
         ctx.beginPath(); ctx.moveTo(LX, gy); ctx.lineTo(LX - 5, gy); ctx.stroke();
-        ctx.fillText((g / 10).toFixed(1), LX - 8, gy + 4);
+        ctx.fillText((g / 10 * depthScale).toFixed(yDec), LX - 8, gy + 4);
     }
     ctx.save();
     ctx.translate(LX - 40, (TY + BY) / 2);
     ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center';
-    ctx.fillText('height', 0, 0);
+    ctx.fillText(`h × ${depthScale.toFixed(3)}`, 0, 0);
     ctx.restore();
 
     ctx.restore();
