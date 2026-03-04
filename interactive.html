@@ -122,13 +122,31 @@ input[type=range] { flex: 1; min-width: 80px; }
     <div style="font-family:monospace;font-size:11px;color:#888;margin-top:2px;" id="norm_formula">
         step = lightDir × depth_scale
     </div>
+    <div class="ctrl-row" style="margin-top: 6px;">
+        <label style="font-family:monospace;font-size:12px;cursor:pointer;">
+            <input type="checkbox" id="ck_scale" style="margin-right:6px;">
+            step = lightDir (no ×depth_scale)
+        </label>
+    </div>
+    <div style="font-family:monospace;font-size:11px;color:#888;margin-top:2px;" id="scale_formula">
+        step = lightDir × depth_scale
+    </div>
+    <div class="ctrl-row" style="margin-top: 6px;">
+        <label style="font-family:monospace;font-size:12px;cursor:pointer;">
+            <input type="checkbox" id="ck_hscale" style="margin-right:6px;">
+            scale h values × depth_scale
+        </label>
+    </div>
+    <div style="font-family:monospace;font-size:11px;color:#888;margin-top:2px;" id="hscale_formula">
+        dh = terrH − rayH (raw)
+    </div>
 </div>
 </div>
 <div id="info">Click on the height profile above to select a fragment.</div>
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-const S = { fragUV: 0.25, depthScale: 0.08, N: 3, alpha: 0.5, angle: 30, normalize: false, terrain: 'Ridge', drag: false };
+const S = { fragUV: 0.25, depthScale: 0.08, N: 3, alpha: 0.5, angle: 30, normalize: false, noDepthScaleInStep: false, scaleHeightValues: false, terrain: 'Ridge', drag: false };
 
 // ── Canvas & chart bounds ──────────────────────────────────────────────────
 const cv  = document.getElementById('canvas');
@@ -188,27 +206,35 @@ function terrain(x) {
 // Exact JS mirror of fastApproximateShadow() in shaders.js:192-207
 // normalize=true divides the step vector by lightDir.z (cos θ), so the ray
 // always traverses the full depth_scale height range regardless of angle.
-function computeFXPS(fragUV, depthScale, N, alpha, angleDeg, normalize) {
+//
+// noDepthScaleInStep=true removes depthScale from the step vector, so the
+// ray sweeps a much larger UV and height range (cos θ vs cos θ × depthScale).
+// scaleHeightValues=true multiplies terrH and surfH by depthScale before the
+// dh comparison, leaving the step (and sample UVs) unchanged.
+function computeFXPS(fragUV, depthScale, N, alpha, angleDeg, normalize, noDepthScaleInStep, scaleHeightValues) {
     const theta  = angleDeg * Math.PI / 180;
     const cosT   = Math.cos(theta);
     const div    = normalize ? cosT : 1.0;
-    const stepX  = Math.sin(theta) / div * depthScale;
-    const stepZ  = cosT            / div * depthScale;
+    const stepScale = noDepthScaleInStep ? 1.0 : depthScale;
+    const hScale    = scaleHeightValues   ? depthScale : 1.0;
+    const stepX      = Math.sin(theta) / div * stepScale;
+    const stepZ      = cosT            / div * stepScale;
+    const stepZ_draw = stepZ / hScale;  // ray height step in chart coordinates
     const surfH  = terrain(fragUV);
     let rawShadow = 0;
     const samples = [];
     for (let i = 1; i <= N; i++) {
         const t       = Math.pow(i / N, alpha);
         const sampUV  = fragUV + stepX * t;
-        const rayH    = surfH  + stepZ  * t;
+        const rayH    = surfH  + stepZ_draw * t;  // chart-space position for drawing
         const terrH   = terrain(sampUV);
-        const dh      = terrH - rayH;
+        const dh      = hScale * (terrH - rayH);  // = terrH*hScale - (surfH*hScale + stepZ*t)
         const contrib = Math.max(0, dh) / i;
         rawShadow = Math.max(rawShadow, contrib);
         samples.push({ i, t, sampUV, rayH, terrH, dh, contrib, occ: dh > 0 });
     }
     const visibility = Math.min(1, Math.max(0, 1 - rawShadow * N));
-    return { samples, rawShadow, visibility, surfH, stepX, stepZ };
+    return { samples, rawShadow, visibility, surfH, stepX, stepZ_draw };
 }
 
 // ── Normal mapping in 2D ────────────────────────────────────────────────────
@@ -264,7 +290,7 @@ function drawShadowStrip() {
     const SAMPLES = 300;
     for (let k = 0; k < SAMPLES; k++) {
         const u = k / SAMPLES;
-        const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize);
+        const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize, S.noDepthScaleInStep, S.scaleHeightValues);
         const r = Math.round(230 * visibility);
         const g = Math.round(190 * visibility);
         const b = Math.round(60 * visibility);
@@ -295,7 +321,7 @@ function drawBrightnessStrip() {
     const theta = S.angle * Math.PI / 180;
     for (let k = 0; k < SAMPLES; k++) {
         const u = k / SAMPLES;
-        const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize);
+        const { visibility } = computeFXPS(u, S.depthScale, S.N, S.alpha, S.angle, S.normalize, S.noDepthScaleInStep, S.scaleHeightValues);
         const { nm } = computeNdotL(u, theta);
         const v = visibility * nm;
         const r = Math.round(230 * v);
@@ -378,8 +404,8 @@ function draw() {
     ctx.restore();
 
     // Compute FXPS
-    const { samples, rawShadow, visibility, surfH, stepX, stepZ } =
-        computeFXPS(fragUV, depthScale, N, alpha, angle, S.normalize);
+    const { samples, rawShadow, visibility, surfH, stepX, stepZ_draw } =
+        computeFXPS(fragUV, depthScale, N, alpha, angle, S.normalize, S.noDepthScaleInStep, S.scaleHeightValues);
 
     // --- clipping region for ray & samples ---
     ctx.save();
@@ -391,7 +417,7 @@ function draw() {
         ctx.setLineDash([5, 4]);
         ctx.beginPath();
         ctx.moveTo(xs(fragUV),            ys(surfH));
-        ctx.lineTo(xs(fragUV + stepX), ys(surfH + stepZ));
+        ctx.lineTo(xs(fragUV + stepX), ys(surfH + stepZ_draw));
         ctx.stroke();
         ctx.setLineDash([]);
     }
@@ -460,18 +486,20 @@ function draw() {
     }
     ctx.fillText('UV coordinate', (LX + RX) / 2, BY + 30);
 
-    // Y axis  (labels in actual displacement units: raw_h × depth_scale)
-    const yDec = depthScale < 0.01 ? 4 : depthScale < 0.1 ? 3 : 2;
+    // Y axis — labels in comparison-space units
+    const yMax  = S.scaleHeightValues ? depthScale : 1.0;
+    const yDec  = S.scaleHeightValues ? (depthScale < 0.01 ? 4 : depthScale < 0.1 ? 3 : 2) : 1;
+    const yLabel = S.scaleHeightValues ? `h × ${depthScale.toFixed(3)}` : 'raw h';
     ctx.textAlign = 'right';
     for (let g = 0; g <= 10; g++) {
         const gy = ys(g / 10);
         ctx.beginPath(); ctx.moveTo(LX, gy); ctx.lineTo(LX - 5, gy); ctx.stroke();
-        ctx.fillText((g / 10 * depthScale).toFixed(yDec), LX - 8, gy + 4);
+        ctx.fillText((g / 10 * yMax).toFixed(yDec), LX - 8, gy + 4);
     }
     ctx.save();
     ctx.translate(LX - 40, (TY + BY) / 2);
     ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center';
-    ctx.fillText(`h × ${depthScale.toFixed(3)}`, 0, 0);
+    ctx.fillText(yLabel, 0, 0);
     ctx.restore();
 
     ctx.restore();
@@ -511,7 +539,7 @@ function draw() {
     drawBrightnessStrip();
 
     // Info panel
-    updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, stepX, stepZ);
+    updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, stepX, stepZ_draw);
 }
 
 // ── Info panel ────────────────────────────────────────────────────────────
@@ -519,7 +547,7 @@ function paperColor(v) {   // visibility 0..1 → rgb string (black → warm yel
     return `rgb(${Math.round(230*v)},${Math.round(190*v)},${Math.round(60*v)})`;
 }
 
-function updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, stepX, stepZ) {
+function updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, stepX, stepZ_draw) {
     const pct = (visibility * 100).toFixed(1);
     const barW = Math.round(visibility * 200);
     const col  = paperColor(visibility);
@@ -558,7 +586,7 @@ function updateInfo(samples, rawShadow, visibility, surfH, fragUV, maxContrib, s
 
     html += `</table>
     <div style="margin-top:6px;color:#555;">
-        step = (${stepX.toFixed(4)}, ${stepZ.toFixed(4)}) &nbsp;
+        step = (${stepX.toFixed(4)}, ${stepZ_draw.toFixed(4)}) &nbsp;
         raw shadow = max(contrib) = <b>${rawShadow.toFixed(5)}</b> &nbsp;
         shadow × N = <b>${(rawShadow * S.N).toFixed(5)}</b> &nbsp;
         visibility = clamp(1 − ${(rawShadow * S.N).toFixed(5)}, 0, 1) = <b>${visibility.toFixed(5)}</b>
@@ -615,6 +643,22 @@ document.getElementById('ck_norm').addEventListener('change', e => {
     document.getElementById('norm_formula').textContent = S.normalize
         ? 'step = (lightDir / lightDir.z) × depth_scale'
         : 'step = lightDir × depth_scale';
+    draw();
+});
+
+document.getElementById('ck_scale').addEventListener('change', e => {
+    S.noDepthScaleInStep = e.target.checked;
+    document.getElementById('scale_formula').textContent = S.noDepthScaleInStep
+        ? 'step = lightDir'
+        : 'step = lightDir × depth_scale';
+    draw();
+});
+
+document.getElementById('ck_hscale').addEventListener('change', e => {
+    S.scaleHeightValues = e.target.checked;
+    document.getElementById('hscale_formula').textContent = S.scaleHeightValues
+        ? 'dh = terrH×ds − (surfH×ds + stepZ×t)'
+        : 'dh = terrH − rayH (raw)';
     draw();
 });
 
