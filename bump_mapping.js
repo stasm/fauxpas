@@ -18,13 +18,11 @@ var MAX_INSTANCES = 4;
 var SHADING_LABELS = {
     diffuse: 'None', normal: 'Normal Map', parallax: 'Parallax',
     steep: 'Steep', pom: 'POM', iterative: 'Iterative',
-    iterative_test: 'Iterative (test)',
 };
 var SHADOW_LABELS = {
     none: 'No Shadow', hard: 'Hard POM', soft: 'Soft POM',
     fxps: 'FXPS', haps: 'HAPS', contact: 'Contact',
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
-    fxps_test: 'FXPS (test)', haps_test: 'HAPS (test)',
 };
 
 // ---------------------------------------------------------------------------
@@ -38,7 +36,6 @@ function update_cost_labels_from(N, S) {
         'steep':     '\u2264' + (1 + N) + ' tex',
         'pom':       '\u2264' + (N + 2) + ' tex',
         'iterative':      N + ' tex',
-        'iterative_test': N + ' tex',
     };
     var shadow_costs = {
         'none':       '0 tex',
@@ -50,8 +47,6 @@ function update_cost_labels_from(N, S) {
         'binary':     '\u2264' + (S + 10) + ' tex',
         'cone':       (1 + S) + ' tex',
         'relief':     '\u2264' + (S + 7) + ' tex',
-        'fxps_test':  (1 + S) + ' tex',
-        'haps_test':  (1 + S) + ' tex',
     };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);
@@ -152,7 +147,7 @@ function syncControlsFromInstance(inst) {
 
     var shadow = shadowTypeToInt(s.shadow_type);
     document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-    document.getElementById('fxps_alpha_control').style.visibility = (shadow == 8 || shadow == 9) ? 'visible' : 'hidden';
+    document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
 
     // Cost labels
     update_cost_labels_from(s.steps, s.shadow_steps);
@@ -198,7 +193,7 @@ function bindControlEvents() {
             sel().settings.shadow_type = this.value;
             var shadow = shadowTypeToInt(this.value);
             document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-            document.getElementById('fxps_alpha_control').style.visibility = (shadow == 8 || shadow == 9) ? 'visible' : 'hidden';
+            document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
             updateTitleBar(sel());
         });
     }

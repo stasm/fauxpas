@@ -126,22 +126,6 @@ vec2 getParallaxOffset(vec2 uv, vec3 eyeDir)
     return ray.xy;
 }
 
-vec2 getParallaxOffsetTest(vec2 uv, vec3 eyeDir)
-{
-    vec3 ray = vec3(0.0);
-
-    for (int i = 0; i < 32; i++)
-    {
-        if (float(i) >= num_layers) break;
-        vec4 texSample = texture(tex_norm, uv + ray.xy);
-        float sampledHeight = texSample.a * depth_scale - parallax_bias;
-        float heightDiff = sampledHeight - ray.z;
-        ray += eyeDir * heightDiff * texSample.z;
-    }
-
-    return ray.xy;
-}
-
 
 float pomHardShadow(vec2 uv, vec3 lightDir)
 {
@@ -191,32 +175,15 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
 
 float fastApproximateShadow(vec2 uv, vec3 lightDir)
 {
-    vec3 step = lightDir * depth_scale;
+    vec3 ray = lightDir * depth_scale;
     float surfaceHeight = texture(tex_norm, uv).a;
 
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
         if (float(i) > shadow_steps) break;
         float t = pow(float(i) / shadow_steps, fxps_alpha);
-        float rayHeight = surfaceHeight + step.z * t;
-        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
-        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
-    }
-
-    return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
-}
-
-float fastApproximateShadowTest(vec2 uv, vec3 lightDir)
-{
-    vec3 step = lightDir * depth_scale;
-    float surfaceHeight = texture(tex_norm, uv).a;
-
-    float shadow = 0.0;
-    for (int i = 1; i <= 32; i++) {
-        if (float(i) > shadow_steps) break;
-        float t = pow(float(i) / shadow_steps, fxps_alpha);
-        float rayHeight = surfaceHeight + step.z * t;
-        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
+        float rayHeight = surfaceHeight + ray.z * t;
+        float sampleHeight = texture(tex_norm, uv + ray.xy * t).a;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
@@ -225,39 +192,15 @@ float fastApproximateShadowTest(vec2 uv, vec3 lightDir)
 
 float heightAdaptiveShadow(vec2 uv, vec3 lightDir)
 {
-    vec3 step = lightDir * depth_scale;
     float surfaceHeight = texture(tex_norm, uv).a;
-
-    // Height-adaptive exponent: valleys (h~0) -> low alpha (far-field),
-    // peaks (h~1) -> high alpha (contact shadows)
-    float alpha = mix(0.1, 2.0, surfaceHeight);
+    vec3 ray = lightDir * depth_scale * exp(0.5 - surfaceHeight);
 
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
         if (float(i) > shadow_steps) break;
-        float t = pow(float(i) / shadow_steps, alpha);
-        float rayHeight = surfaceHeight + step.z * t;
-        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
-        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
-    }
-
-    // Scale-invariant normalization: strength = N makes sample count a pure quality knob
-    return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
-}
-
-float heightAdaptiveShadowTest(vec2 uv, vec3 lightDir)
-{
-    vec3 step = lightDir * depth_scale;
-    float surfaceHeight = texture(tex_norm, uv).a;
-
-    float alpha = mix(0.1, 2.0, surfaceHeight);
-
-    float shadow = 0.0;
-    for (int i = 1; i <= 32; i++) {
-        if (float(i) > shadow_steps) break;
-        float t = pow(float(i) / shadow_steps, alpha);
-        float rayHeight = surfaceHeight + step.z * t;
-        float sampleHeight = texture(tex_norm, uv + step.xy * t).a;
+        float t = pow(float(i) / shadow_steps, fxps_alpha);
+        float rayHeight = surfaceHeight + ray.z * t;
+        float sampleHeight = texture(tex_norm, uv + ray.xy * t).a;
         shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
     }
 
@@ -437,8 +380,6 @@ void main(void)
     vec2 uv;
     if (type == 5) {
         uv = frag_uv + getParallaxOffset(frag_uv, view_dir);
-    } else if (type == 6) {
-        uv = frag_uv + getParallaxOffsetTest(frag_uv, view_dir);
     } else {
         uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
     }
@@ -456,8 +397,6 @@ void main(void)
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
     else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
-    else if (shadow_type == 9) shadow = fastApproximateShadowTest(uv, light_dir);
-    else if (shadow_type == 10) shadow = heightAdaptiveShadowTest(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping
