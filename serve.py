@@ -10,5 +10,5 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         super().end_headers()
 
-print("Serving on http://localhost:8000 (cross-origin isolated)")
-http.server.HTTPServer(("", 8000), Handler).serve_forever()
+print("Serving on http://localhost:8001 (cross-origin isolated)")
+http.server.HTTPServer(("", 8001), Handler).serve_forever()
