@@ -52,6 +52,7 @@ export function createInstance(canvasEl) {
         steps:        12,
         shadow_steps: 3,
         fxps_alpha:   0.5,
+        haps_k:       0.5,
     };
 
     var gl;
@@ -214,6 +215,7 @@ export function renderInstance(inst, time) {
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "shadow_type"), shadow);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "shadow_steps"), s.shadow_steps);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "fxps_alpha"), s.fxps_alpha);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "haps_k"), s.haps_k);
 
     // Draw
     gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);

@@ -139,6 +139,9 @@ function syncControlsFromInstance(inst) {
     document.getElementById('fxps_alpha').value = s.fxps_alpha;
     document.getElementById('fxps_alpha_val').textContent = parseFloat(s.fxps_alpha).toFixed(1);
 
+    document.getElementById('haps_k').value = s.haps_k;
+    document.getElementById('haps_k_val').textContent = parseFloat(s.haps_k).toFixed(2);
+
     // Conditional visibility
     var type = shadingTypeToInt(s.shading_type);
     document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
@@ -148,6 +151,7 @@ function syncControlsFromInstance(inst) {
     var shadow = shadowTypeToInt(s.shadow_type);
     document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
     document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
+    document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
 
     // Cost labels
     update_cost_labels_from(s.steps, s.shadow_steps);
@@ -194,6 +198,7 @@ function bindControlEvents() {
             var shadow = shadowTypeToInt(this.value);
             document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
             document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
+            document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
             updateTitleBar(sel());
         });
     }
@@ -222,6 +227,10 @@ function bindControlEvents() {
     document.getElementById('fxps_alpha').addEventListener('input', function () {
         sel().settings.fxps_alpha = parseFloat(this.value);
         document.getElementById('fxps_alpha_val').textContent = sel().settings.fxps_alpha.toFixed(1);
+    });
+    document.getElementById('haps_k').addEventListener('input', function () {
+        sel().settings.haps_k = parseFloat(this.value);
+        document.getElementById('haps_k_val').textContent = sel().settings.haps_k.toFixed(2);
     });
 }
 

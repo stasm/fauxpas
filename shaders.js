@@ -61,6 +61,7 @@ uniform float parallax_bias;
 uniform float num_layers;
 uniform float shadow_steps;
 uniform float fxps_alpha;
+uniform float haps_k;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
@@ -193,7 +194,7 @@ float fastApproximateShadow(vec2 uv, vec3 lightDir)
 float heightAdaptiveShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceHeight = texture(tex_norm, uv).a;
-    vec3 ray = lightDir * depth_scale * exp(0.5 - surfaceHeight);
+    vec3 ray = lightDir * depth_scale * exp(haps_k - surfaceHeight);
 
     float shadow = 0.0;
     for (int i = 1; i <= 32; i++) {
