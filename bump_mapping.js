@@ -17,7 +17,7 @@ var MAX_INSTANCES = 4;
 // ---------------------------------------------------------------------------
 var SHADING_LABELS = {
     diffuse: 'None', normal: 'Normal Map', parallax: 'Parallax',
-    steep: 'Steep', pom: 'POM', iterative: 'Iterative',
+    steep: 'Steep', pom: 'POM', contact_refinement: 'Contact', iterative: 'Iterative',
 };
 var SHADOW_LABELS = {
     none: 'No Shadow', hard: 'Hard POM', soft: 'Soft POM',
@@ -36,6 +36,7 @@ function update_cost_labels_from(N, S) {
         'steep':     '\u2264' + (1 + N) + ' tex',
         'pom':       '\u2264' + (N + 2) + ' tex',
         'iterative':      N + ' tex',
+        'contact_refinement': '\u2264' + (1 + 2*N) + ' tex',
     };
     var shadow_costs = {
         'none':       '0 tex',
@@ -145,7 +146,7 @@ function syncControlsFromInstance(inst) {
     // Conditional visibility
     var type = shadingTypeToInt(s.shading_type);
     document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
-    document.getElementById('bias_ratio_control').style.visibility = (type == 5 || type == 6) ? 'visible' : 'hidden';
+    document.getElementById('bias_ratio_control').style.visibility = type == 5 ? 'visible' : 'hidden';
     document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
 
     var shadow = shadowTypeToInt(s.shadow_type);
@@ -184,7 +185,7 @@ function bindControlEvents() {
             sel().settings.shading_type = this.value;
             var type = shadingTypeToInt(this.value);
             document.getElementById('scale_control').style.visibility = type >= 2 ? 'visible' : 'hidden';
-            document.getElementById('bias_ratio_control').style.visibility = (type == 5 || type == 6) ? 'visible' : 'hidden';
+            document.getElementById('bias_ratio_control').style.visibility = type == 5 ? 'visible' : 'hidden';
             document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
             updateTitleBar(sel());
         });

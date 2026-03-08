@@ -15,6 +15,7 @@ export function shadingTypeToInt(val) {
         case "steep":     return 3;
         case "pom":       return 4;
         case "iterative":      return 5;
+        case "contact_refinement": return 6;
         default:               return 0;
     }
 }

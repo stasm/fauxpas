@@ -99,6 +99,20 @@ vec2 parallax_uv(vec2 uv, vec3 view_dir)
         if (type == 3) {
             // Steep parallax mapping
             return cur_uv;
+        } else if (type == 6) {
+            // Contact Refinement Parallax Mapping (Riccardi 2017)
+            // Re-march from last above-surface position with 1/N step size
+            vec2 fine_delta = delta_uv / num_layers;
+            float fine_step = layer_depth / num_layers;
+            cur_uv += delta_uv;
+            cur_layer_depth -= layer_depth;
+            for (int i = 0; i < 32; i++) {
+                if (float(i) >= num_layers) break;
+                cur_layer_depth += fine_step;
+                cur_uv -= fine_delta;
+                if (texDepth(cur_uv) < cur_layer_depth) break;
+            }
+            return cur_uv;
         } else {
             // Parallax occlusion mapping
             vec2 prev_uv = cur_uv + delta_uv;
