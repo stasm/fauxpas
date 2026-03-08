@@ -160,17 +160,17 @@ float pomSoftShadow(vec2 uv, vec3 lightDir)
 
     float rayDepth = surfaceDepth;
     vec2 cur_uv = uv;
-    float maxOcclusion = 0.0;
+    float maxShadow = 0.0;
 
     for (int i = 0; i < 32; i++) {
         if (float(i) >= shadow_steps) break;
         cur_uv += uvPerStep;
         rayDepth -= depthPerStep;
         float sampleDepth = texDepth(cur_uv);
-        float occlusion = (rayDepth - sampleDepth) / (float(i + 1) * depthPerStep);
-        maxOcclusion = max(maxOcclusion, occlusion);
+        float t = float(i + 1) / shadow_steps;
+        maxShadow = max(maxShadow, (rayDepth - sampleDepth) * (1.0 - t));
     }
-    return clamp(1.0 - maxOcclusion, 0.0, 1.0);
+    return clamp(1.0 - maxShadow * shadow_steps, 0.0, 1.0);
 }
 
 float fastApproximateShadow(vec2 uv, vec3 lightDir)
