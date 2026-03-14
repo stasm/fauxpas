@@ -386,6 +386,44 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
 
+float normalGuidedShadow(vec2 uv, vec3 lightDir)
+{
+    float surfaceDepth = texDepth(uv);
+    if (surfaceDepth < 0.01) return 1.0;
+
+    float minStep = surfaceDepth / shadow_steps;
+    vec2 uvPerDepth = lightDir.xy * depth_scale / lightDir.z;
+    vec2 cur_uv = uv;
+    float rayDepth = surfaceDepth;
+    float maxShadow = 0.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= shadow_steps) break;
+
+        vec4 s = texture(tex_norm, cur_uv);
+        float sampleDepth = 1.0 - s.a;
+
+        // Soft accumulation: weight penetration by proximity to surface origin.
+        // Use actual depth fraction rather than step index (steps are variable size).
+        float penetration = rayDepth - sampleDepth;
+        if (penetration > 0.0) {
+            float t = 1.0 - rayDepth / surfaceDepth;
+            maxShadow = max(maxShadow, penetration * (1.0 - t));
+        }
+
+        // Mirror of getParallaxOffset: step = above * normal.z, floored at minStep.
+        // When below the surface above < 0, max() clamps to minStep automatically.
+        float above = sampleDepth - rayDepth;
+        float depthStep = max(above * s.z, minStep);
+
+        cur_uv += uvPerDepth * depthStep;
+        rayDepth -= depthStep;
+        if (rayDepth <= 0.0) break;
+    }
+
+    return clamp(1.0 - maxShadow * shadow_steps, 0.0, 1.0);
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -412,6 +450,7 @@ void main(void)
     else if (shadow_type == 6) shadow = coneTracedShadow(uv, light_dir);
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
     else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
+    else if (shadow_type == 9) shadow = normalGuidedShadow(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping

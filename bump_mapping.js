@@ -23,6 +23,7 @@ var SHADOW_LABELS = {
     none: 'No Shadow', hard: 'Hard POM', soft: 'Soft POM',
     fxps: 'FXPS', haps: 'HAPS', contact: 'Contact',
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
+    slope: 'Slope-Guided',
 };
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ function update_cost_labels_from(N, S) {
         'binary':     '\u2264' + (S + 10) + ' tex',
         'cone':       (1 + S) + ' tex',
         'relief':     '\u2264' + (S + 7) + ' tex',
+        'slope':      '\u2264' + (1 + S) + ' tex',
     };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);
