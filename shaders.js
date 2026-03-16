@@ -386,6 +386,41 @@ float reliefMappingShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - depthDiff * shadow_steps, 0.0, 1.0);
 }
 
+// Normal Mapping Shadows (Shopov / enbdev)
+// Marches along the light direction in UV space, accumulating a slope formed
+// by summing dot(lightDir, normal) contributions.  When the running slope
+// exceeds the maximum seen so far the point is considered self-shadowed; the
+// contribution is weighted by proximity (1 - pos) so near occluders cast
+// harder shadows than distant ones.
+float normalMappingShadow(vec2 uv, vec3 lightDir)
+{
+    vec3 norm = normalize(texture(tex_norm, uv).rgb * 2.0 - 1.0);
+    float lighting = dot(lightDir, norm);
+
+    // UV march direction: follow the light projected onto the surface
+    vec2 dir = lightDir.xy * depth_scale / lightDir.z;
+    float stepSize = 1.0 / shadow_steps;
+
+    float pos = 0.0;
+    float slope = -lighting;   // seed with the current fragment's facing
+    float maxslope = 0.0;
+    float shadow = 0.0;
+
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= shadow_steps) break;
+        pos += stepSize;
+        vec3 tmpNormal = normalize(texture(tex_norm, uv + dir * pos).rgb * 2.0 - 1.0);
+        float tmpLighting = dot(lightDir, tmpNormal);
+        slope += -tmpLighting;
+        if (slope > maxslope) {
+            shadow += 2.0 * (1.0 - pos);
+        }
+        maxslope = max(maxslope, slope);
+    }
+
+    return clamp(1.0 - shadow * stepSize, 0.0, 1.0);
+}
+
 float normalGuidedShadow(vec2 uv, vec3 lightDir)
 {
     float surfaceDepth = texDepth(uv);
@@ -451,6 +486,7 @@ void main(void)
     else if (shadow_type == 7) shadow = reliefMappingShadow(uv, light_dir);
     else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
     else if (shadow_type == 9) shadow = normalGuidedShadow(uv, light_dir);
+    else if (shadow_type == 10) shadow = normalMappingShadow(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping

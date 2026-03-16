@@ -24,6 +24,7 @@ var SHADOW_LABELS = {
     fxps: 'FXPS', haps: 'HAPS', contact: 'Contact',
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
     slope: 'Slope-Guided',
+    nms: 'NMS',
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ function update_cost_labels_from(N, S) {
         'cone':       (1 + S) + ' tex',
         'relief':     '\u2264' + (S + 7) + ' tex',
         'slope':      '\u2264' + (1 + S) + ' tex',
+        'nms':        (1 + S) + ' tex',
     };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);

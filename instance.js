@@ -31,6 +31,7 @@ export function shadowTypeToInt(val) {
         case "relief":     return 7;
         case "fxps":       return 8;
         case "slope":      return 9;
+        case "nms":        return 10;
         default:           return 0;
     }
 }
