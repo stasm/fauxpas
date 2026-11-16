@@ -27,10 +27,12 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/pn
     await set('scale', c.scale ?? scale);
     await set('steps', c.steps ?? 4);
     if ((c.shadow || 'none') !== 'none') await set('shadow_steps', c.shadow_steps ?? 4);
+    if (c.prefilter !== undefined) await set('prefilter', c.prefilter);
+    if (c.light_radius !== undefined) await set('light_radius', c.light_radius);
     if (c.show_tex === false) await page.uncheck('#show_tex');
   }
   await page.evaluate(t => { window.fauxpas.paused = true; window.fauxpas.time = t; }, parseFloat(time));
   await page.waitForTimeout(1500);
-  await page.locator('#canvas_strip, .canvas-strip').first().screenshot({ path: out }).catch(() => page.screenshot({ path: out }));
+  await page.locator('#canvas_strip, .canvas-strip').first().screenshot({ path: out, timeout: 120000 }).catch(() => page.screenshot({ path: out }));
   await browser.close(); srv.close();
 })();

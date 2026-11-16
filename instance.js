@@ -32,6 +32,7 @@ export function shadowTypeToInt(val) {
         case "fxps":       return 8;
         case "slope":      return 9;
         case "nms":        return 10;
+        case "horizon":    return 11;
         default:           return 0;
     }
 }
@@ -49,13 +50,15 @@ export function createInstance(canvasEl) {
         tex_set:      0,
         show_tex:     true,
         shading_type: 'iterative',
-        shadow_type:  'fxps',
+        shadow_type:  'horizon',
         scale:        8,
         bias_ratio:   100,
         steps:        12,
-        shadow_steps: 3,
+        shadow_steps: 4,
         fxps_alpha:   0.5,
         haps_k:       0.5,
+        light_radius: 0.05,
+        prefilter:    0.5,
     };
 
     var gl;
@@ -151,6 +154,15 @@ export function createInstance(canvasEl) {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
     inst.num_indices = indices.length;
 
+    // Units 0 and 1 sample without mips (as every technique here always has);
+    // unit 2 re-binds the normal/height texture with its mip chain for
+    // techniques that prefilter via textureLod.
+    inst.sampler_nomip = gl.createSampler();
+    gl.samplerParameteri(inst.sampler_nomip, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.samplerParameteri(inst.sampler_nomip, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.bindSampler(0, inst.sampler_nomip);
+    gl.bindSampler(1, inst.sampler_nomip);
+
     // Textures (each GL context needs its own copies)
     inst.tex_sets = [
         { norm: load_texture(gl, "bump_normal.png"),   diffuse: load_texture(gl, "bump_diffuse.png") },
@@ -200,6 +212,9 @@ export function renderInstance(inst, time) {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_diffuse"), 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, set.norm);
+    gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_norm_mip"), 2);
 
     // Technique uniforms
     var type = shadingTypeToInt(s.shading_type);
@@ -219,6 +234,8 @@ export function renderInstance(inst, time) {
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "shadow_steps"), s.shadow_steps);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "fxps_alpha"), s.fxps_alpha);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "haps_k"), s.haps_k);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "light_radius"), s.light_radius);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "prefilter"), s.prefilter);
 
     // Draw
     gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
@@ -263,6 +280,8 @@ export function renderInstance(inst, time) {
         case "cone":       shadow_samples = 1 + S; break;
         case "relief":     shadow_samples = S + 7; break;
         case "slope":      shadow_samples = 1 + S; break;
+        case "nms":        shadow_samples = 1 + S; break;
+        case "horizon":    shadow_samples = S; break;
     }
     var total_samples = parallax_samples + shadow_samples;
     var time_str = inst.frame_time_avg < 1

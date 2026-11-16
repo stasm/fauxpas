@@ -191,7 +191,8 @@
                 <input type="radio" name="shadow_type" value="none"/>None <span class="cost" id="cost_shadow_none"></span><br/>
                 <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
                 <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
-                <input type="radio" name="shadow_type" value="fxps" checked/>Fast Approximate <span class="cost" id="cost_shadow_fxps"></span><br/>
+                <input type="radio" name="shadow_type" value="horizon" checked/>Exit-clipped horizon <span class="cost" id="cost_shadow_horizon"></span><br/>
+                <input type="radio" name="shadow_type" value="fxps"/>Fast Approximate <span class="cost" id="cost_shadow_fxps"></span><br/>
                 <input type="radio" name="shadow_type" value="haps"/>Height-adaptive <span class="cost" id="cost_shadow_haps"></span><br/>
                 <input type="radio" name="shadow_type" value="contact"/>Contact-hardening <span class="cost" id="cost_shadow_contact"></span><br/>
                 <input type="radio" name="shadow_type" value="binary"/>Binary search <span class="cost" id="cost_shadow_binary"></span><br/>
@@ -203,13 +204,23 @@
             <table>
                 <tr id="shadow_step_control">
                     <td>Steps</td>
-                    <td><input type="range" min="1" max="32" value="3" id="shadow_steps"/></td>
-                    <td><span id="shadow_steps_val">3</span></td>
+                    <td><input type="range" min="1" max="32" value="4" id="shadow_steps"/></td>
+                    <td><span id="shadow_steps_val">4</span></td>
                 </tr>
                 <tr id="fxps_alpha_control">
                     <td>&alpha;</td>
                     <td><input type="range" min="0.1" max="2" step="0.1" value="0.5" id="fxps_alpha"/></td>
                     <td><span id="fxps_alpha_val">0.5</span></td>
+                </tr>
+                <tr id="light_radius_control">
+                    <td>Light size</td>
+                    <td><input type="range" min="0.01" max="0.3" step="0.01" value="0.05" id="light_radius"/></td>
+                    <td><span id="light_radius_val">0.05</span></td>
+                </tr>
+                <tr id="prefilter_control">
+                    <td>Prefilter</td>
+                    <td><input type="range" min="0" max="1" step="0.05" value="0.5" id="prefilter"/></td>
+                    <td><span id="prefilter_val">0.50</span></td>
                 </tr>
                 <tr id="haps_k_control">
                     <td>k</td>

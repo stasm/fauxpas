@@ -10,9 +10,11 @@ sys.path.insert(0, '/home/user/fauxpas/lab')
 import numpy as np
 import lab
 
-BETA = 0.5     # mip footprint / sample spacing (1 = gap-free prefilter, 0 = point samples)
-W_REL = 0.10   # penumbra ramp width as a fraction of the head-room H = 1 - h0
-W_ABS = 0.02   # absolute floor of the ramp width (normalised height) -- anti-pop fudge
+BETA = 0.75    # mip footprint / sample spacing (1 = gap-free prefilter, 0 = point samples)
+W_REL = 0.15   # penumbra ramp width as a fraction of the head-room H = 1 - h0
+W_ABS = 0.03   # absolute floor of the ramp width (normalised height) -- anti-pop fudge
+COT_MAX = 4.0  # virtual light never lower than ~14 deg: limits shadow length at grazing angles (fudge)
+# sharper preset (better metrics, lumpier edges): beta=0.5, w_rel=0.10, w_abs=0.02
 
 
 def horizon_shadow(T, uv, L, ds, N, beta=BETA, w_rel=W_REL, w_abs=W_ABS):
@@ -20,7 +22,7 @@ def horizon_shadow(T, uv, L, ds, N, beta=BETA, w_rel=W_REL, w_abs=W_ABS):
     h0 = T.center(uv)[..., 3]                       # free
     hl = math.hypot(L[0], L[1])
     Lh = np.array([L[0], L[1]]) / max(hl, 1e-5)     # unit uv direction toward the light
-    cot = hl / max(L[2], 1e-3)                      # uv travelled per unit of real height gained
+    cot = min(hl / max(L[2], 1e-3), COT_MAX)                      # uv travelled per unit of real height gained
     H = 1.0 - h0                                    # head-room above the shaded point
     d_exit = ds * cot * H                           # uv distance at which the ray leaves the volume
     lod = np.log2(np.maximum(beta * d_exit * T.size / N, 1.0))   # footprint = beta * spacing

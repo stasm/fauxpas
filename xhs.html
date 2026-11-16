@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Exit-clipped horizon shadows: notes</title>
+<style>
+body { max-width: 720px; margin: 2em auto; font-family: Georgia, 'Times New Roman', serif;
+       font-size: 16px; line-height: 1.6; color: #1a1a1a; padding: 0 1em; }
+h1 { font-size: 1.7em; margin-bottom: 0.1em; }
+h1 + p { margin-top: 0.2em; color: #555; font-style: italic; }
+h2 { font-size: 1.25em; margin-top: 2em; }
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #999; padding: 4px 10px; text-align: right; }
+th { background: #f0f0f0; } td:first-child, th:first-child { text-align: left; }
+pre { background: #f5f5f5; padding: 1em; overflow-x: auto; font-size: 0.85em; line-height: 1.4; }
+code { font-family: Consolas, Monaco, monospace; }
+figure { margin: 1.5em 0; } figure img { width: 100%; image-rendering: pixelated; }
+figcaption { font-size: 0.9em; color: #555; }
+</style>
+</head>
+<body>
+
+<h1>Exit-clipped horizon shadows</h1>
+<p>Working notes on a 4-sample self-shadowing term for iterative parallax mapping. Supersedes <a href="paper.html">FXPS</a>.</p>
+
+<h2>What was wrong with FXPS</h2>
+<p>FXPS marches <code>lightDir * depth_scale</code> and uses that one vector both as a uv offset and as a
+rise in normalised height. Physically the rise should be <code>lightDir.z * t</code> for a uv offset of
+<code>lightDir.xy * depth_scale * t</code>, so the FXPS ray climbs <code>depth_scale</code> times too
+slowly (12.5&times; at the default 0.08). Setting the rise to exactly zero barely changes its output.
+With &alpha; = 1 it reduces exactly to</p>
+<pre>vis = 1 - |L.xy| * (S - depth_scale * m)</pre>
+<p>where <code>S</code> is the steepest horizon slope within a fixed reach of <code>depth_scale * |L.xy|</code>
+uv and <code>m</code> is the light's slope. That is a single-azimuth horizon <em>ambient occlusion</em> term
+with a virtual light roughly 0.5 rad wide, not a shadow. This explains both why it looks pleasant (short
+reach and a huge ramp cannot band or pop) and where it fails: every slope facing away from the light is
+darkened even with the sun at 70&deg;, real shadows are too short at 15&deg;, the result does not track
+<code>depth_scale</code>, and adding samples does not help (error at N = 2, 3, 4, 6: 0.106, 0.104, 0.104, 0.107).
+The <code>pow(i/N, &alpha;)</code> distribution and <code>1/i</code> weights have no geometric meaning; the
+<code>1/i</code> happens to imitate the <code>1/distance</code> of a slope.</p>
+
+<h2>The replacement</h2>
+<p>Keep the ray march (alternatives are listed below; none survived) but give it the right geometry.</p>
+<ol>
+<li><b>Clip the ray to the height volume.</b> A point at height <code>h0</code> can only be occluded
+until its light ray has climbed the head-room <code>H = 1 - h0</code>, which takes a uv distance of
+<code>depth_scale * cot(E) * H</code> (<code>E</code> = light elevation). All samples go on that segment,
+at the midpoints of N equal slices. This sets the shadow length correctly for every elevation and depth
+scale, and spends nothing on plateaus.</li>
+<li><b>Read each sample as a horizon ratio.</b> At fraction <code>f</code> of the segment the ray is at
+<code>h0 + f*H</code>, so <code>(h - h0) / (f*H)</code> is tan(horizon elevation) / tan(light elevation).
+The maximum over the samples is the horizon estimate; above 1 means shadow.</li>
+<li><b>Penumbra from the light's size.</b> A disc light of angular radius <code>r</code> spans
+<code>2r / (sin E cos E)</code> in that ratio. Visibility is the fraction of the disc above the horizon,
+linearised and centred: 0.5 when the horizon cuts the light's centre.</li>
+<li><b>Prefilter.</b> Four point samples see an occluder narrower than their spacing one at a time and
+stamp a ghost copy of its silhouette per sample. Each sample therefore reads a mip whose footprint is a
+fraction (<code>prefilter</code>, default 0.5) of the sample spacing.</li>
+</ol>
+<pre>float horizonShadow(vec2 uv, vec3 lightDir, vec4 center)   // center = texel at uv (already fetched)
+{
+    if (lightDir.z &lt;= 0.0) return 0.0;
+    float h0 = center.a;
+    float headroom = 1.0 - h0;
+    float hl = max(length(lightDir.xy), 1e-4);
+    float cot_l = min(hl / lightDir.z, XHS_MAX_COT);
+
+    vec2 span = lightDir.xy * (depth_scale * cot_l * headroom / hl);
+    float inv_n = 1.0 / shadow_steps;
+    float spacing_texels = length(span) * inv_n * float(textureSize(tex_norm_mip, 0).x);
+    float lod = log2(max(prefilter * spacing_texels, 1.0));
+
+    float ratio = 0.0;
+    for (int i = 0; i &lt; 32; i++) {
+        if (float(i) &gt;= shadow_steps) break;
+        float f = (float(i) + 0.5) * inv_n;
+        float h = textureLod(tex_norm_mip, uv + span * f, lod).a;
+        ratio = max(ratio, (h - h0) / max(f * headroom, XHS_MIN_RISE));
+    }
+    float sin_cos = cot_l / (1.0 + cot_l * cot_l);
+    return clamp(0.5 - (ratio - 1.0) * sin_cos / (2.0 * light_radius), 0.0, 1.0);
+}</pre>
+<p>Per sample: one fetch, one divide, a few multiply-adds. The origin height comes from the texel the
+shading pass reads anyway, so the cost is N fetches, not N + 1.</p>
+
+<h2>Constants that are not derived</h2>
+<ul>
+<li><code>light_radius</code> (0.05 rad) is a look parameter with a physical meaning.</li>
+<li><code>prefilter</code> (0.5) is a trade: 0 is sharpest and most accurate on average but ghosts under
+low light; 1 is gap-free but leaks light, because a mean-filtered height under-represents thin tall occluders.</li>
+<li><code>XHS_MIN_RISE</code> (0.02) is a numerical guard: below about 5 LSB of 8-bit height the ratio is noise.</li>
+<li><code>XHS_MAX_COT</code> (4) deliberately stops the ray getting flatter than about 14&deg;. Below that,
+shadows are shorter than they should be. That is a choice of look over correctness.</li>
+</ul>
+
+<h2>Measurements</h2>
+<p>CPU harness in <code>lab/</code>: brute-force area-light reference (radius 0.05 rad), three texture
+sets, four light elevations (15&ndash;70&deg;), three azimuths, depth scale 0.08, flat view, 1 pixel = 1 texel.
+"lit" is the RMSE of N&middot;L &times; visibility; flicker is how much the image changes for a 2&deg;
+light rotation relative to the reference (1 = moves like the reference).</p>
+<table>
+<tr><th>method</th><th>fetches</th><th>lit RMSE</th><th>bias</th><th>flicker</th></tr>
+<tr><td>no shadow</td><td>0</td><td>0.168</td><td>+0.059</td><td>0.97</td></tr>
+<tr><td>FXPS &alpha;=0.5</td><td>4</td><td>0.104</td><td>&minus;0.013</td><td>1.11</td></tr>
+<tr><td>Soft POM</td><td>4</td><td>0.110</td><td>+0.032</td><td>0.98</td></tr>
+<tr><td>XHS</td><td>2</td><td>0.048</td><td>+0.006</td><td>1.01</td></tr>
+<tr><td>XHS</td><td>3</td><td>0.033</td><td>+0.004</td><td>1.03</td></tr>
+<tr><td>XHS</td><td>4</td><td>0.026</td><td>+0.002</td><td>1.01</td></tr>
+<tr><td>XHS</td><td>6</td><td>0.017</td><td>+0.001</td><td>1.01</td></tr>
+<tr><td>XHS, prefilter 0</td><td>4</td><td>0.019</td><td>+0.002</td><td>1.02</td></tr>
+</table>
+<figure><img src="lab/final/fig_rocks_e30.png" alt=""><img src="lab/final/fig_bump_e15.png" alt="">
+<figcaption>Reference | FXPS (4) | XHS (4). Top: rocks, light 30&deg; above the surface. Bottom: classic
+set at 15&deg;, the hardest case: the shadows have the right extent but scalloped edges.</figcaption></figure>
+
+<h2>Known limits</h2>
+<ul>
+<li>Thin, tall occluders under low light still show scalloped or lumpy shadow edges at 4 samples;
+prefiltering softens the ghosts rather than removing them. Six samples mostly merges them.</li>
+<li>The estimator is sensitive to the start height: +0.02 doubles the error, &minus;0.02 self-shadows
+everything. It must start from the height of the texel actually shaded, never from the parallax loop's
+running ray height.</li>
+<li>All numbers are from the flat-view harness at depth scale 0.08 (spot checks at 0.04 and 0.16 held up).
+The live demo was checked by eye only.</li>
+</ul>
+
+<h2>What was tried and dropped</h2>
+<ul>
+<li><b>Using the normal that comes with each fetch as a height gradient</b> (Hermite samples, origin
+tangent plane). The shipped normal maps do not agree with their height channels: the slope gain differs
+6&times; between sets and the rocks normal map is that of the <em>inverted</em> height field
+(correlation &minus;0.99). With a per-texture calibrated gain the benefit was marginal anyway.</li>
+<li><b>Adaptive stepping</b> in the style of the iterative parallax loop: worse and less stable than a
+fixed schedule at this sample count.</li>
+<li><b>Power-law or geometric sample spacing</b>: worse than uniform midpoints at every N.</li>
+<li><b>Non-ray formulations</b>: directional unsharp mask, cavity/AO from a blurred height,
+variance-style occlusion, zero-fetch terms. All lost to FXPS or tied with no shadow at all.</li>
+<li><b>Summed or multiplied per-sample visibilities, smoothstep ramps, distance fades</b>: no gain over
+max plus a linear ramp; fades made the per-sample stamps visible as terraces.</li>
+</ul>
+<p>Scripts and contact sheets for all of this are under <code>lab/horizon</code>, <code>lab/gradient</code>
+and <code>lab/wild</code> (<code>lab/mip</code> is an unfinished run; its question is answered by
+<code>lab/final/xhs.py</code>).</p>
+
+</body>
+</html>

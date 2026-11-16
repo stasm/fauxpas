@@ -33,7 +33,9 @@ Open `index.html` in a browser. Click any canvas to pause/resume rotation.
 | `matrix.js` | Hand-rolled 4×4 matrix library |
 | `index.html` | Canvas strip + controls UI |
 | `interactive.html` | Interactive Canvas 2D FXPS shadow visualizer (open directly, no server needed) |
-| `paper.html` | FXPS paper (text only) |
+| `xhs.html` | Notes on Exit-clipped Horizon Shadows (the default shadow; supersedes FXPS) |
+| `lab/` | Python shadow lab: numpy shader emulation, brute-force reference, metrics (`lab.py`), demo screenshots (`shot.js`) |
+| `paper.html` | FXPS paper (text only, superseded by `xhs.html`) |
 | `appendix.html` | FXPS paper figures (Canvas 2D rendered) |
 | `serve.py` | Dev HTTP server that adds COOP/COEP headers |
 | `bump_normal.png` / `bump_diffuse.png` | "Classic" texture set |
@@ -94,6 +96,9 @@ The shader uses **GLSL ES 3.00** (`#version 300 es`), i.e., WebGL 2. Do not use 
 | 6 | Cone Traced | `coneTracedShadow` |
 | 7 | Relief | `reliefMappingShadow` |
 | 8 | FXPS | `fastApproximateShadow` (fixed α = `fxps_alpha`) |
+| 9 | Slope-guided | `normalGuidedShadow` |
+| 10 | NMS | `normalMappingShadow` |
+| 11 | Exit-clipped horizon (default) | `horizonShadow` (XHS; `light_radius`, `prefilter`) |
 
 3. **`main()`** — dispatches to the selected parallax and shadow functions, then applies Lambertian shading with a constant 0.3 ambient term.
 
@@ -106,6 +111,8 @@ All three texture sets share the same layout:
 
 The fragment shader reads height as `texture(tex_norm, uv).a`. The `texDepth()` helper inverts this to depth convention (`1.0 - height`).
 
+Caveat: the normal maps are not consistent with the height channels (gain differs per set; the Rocks normal map is inverted relative to its heights), so do not derive height gradients from normals.
+
 There is **no separate depth/height texture**. The third file referenced in some old documentation (`bump_depth.png`) no longer exists.
 
 ### Key conventions
@@ -115,6 +122,7 @@ There is **no separate depth/height texture**. The third file referenced in some
 - Matrices are flat 16-element arrays in column-major order (OpenGL convention). The JS matrix functions are written as their mathematical transposes to compensate.
 - The `norm_mtx` uniform is `transpose(inverse(model_mtx))`, computed on the JS side via `mtx_transpose(mtx_inverse(model))`.
 - The FXPS technique (`fastApproximateShadow`, `shadow_type == 8`) uses a power-law step distribution `t = pow(i/N, alpha)` with `1/i` weighting and `strength = N` normalization. The exponent `alpha` is exposed as the `fxps_alpha` slider (default 0.5). See `paper.html` for the derivation.
+- XHS (`horizonShadow`, `shadow_type == 11`, the default) clips the light ray to the height volume, puts `shadow_steps` samples at slice midpoints, takes the max of `(h - h0) / (f * headroom)` (horizon slope over light slope) and maps it through a penumbra ramp set by `light_radius`. Samples use `textureLod` on `tex_norm_mip` (unit 2: the same normal/height texture with mips; units 0 and 1 are forced non-mipped by a sampler object). It takes the already-fetched centre texel, so it costs exactly `shadow_steps` fetches. `lab/final/xhs.py` mirrors it in numpy; keep the two in sync. See `xhs.html`.
 - HAPS (`heightAdaptiveShadow`, `shadow_type == 3`) is the height-adaptive variant that mixes alpha per-fragment based on surface height.
 
 ### Adding a new parallax technique

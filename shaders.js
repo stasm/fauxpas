@@ -44,6 +44,7 @@ precision highp float;
 
 uniform sampler2D tex_norm;
 uniform sampler2D tex_diffuse;
+uniform sampler2D tex_norm_mip;   // same texture as tex_norm, sampled with mips
 /*
     The type is controlled by the radio buttons below the canvas.
     0 = No bump mapping
@@ -62,6 +63,8 @@ uniform float num_layers;
 uniform float shadow_steps;
 uniform float fxps_alpha;
 uniform float haps_k;
+uniform float light_radius;
+uniform float prefilter;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
@@ -459,6 +462,60 @@ float normalGuidedShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - maxShadow * shadow_steps, 0.0, 1.0);
 }
 
+// Exit-clipped Horizon Shadow (XHS)
+//
+// A point at height h0 can only be occluded while its light ray is inside the
+// height volume, i.e. until the ray has climbed the head-room H = 1 - h0.
+// The shadow_steps samples sit at the midpoints of equal slices of exactly
+// that segment. For a sample at fraction f of the segment the ray is at
+// h0 + f*H, so
+//
+//     (h - h0) / (f * H)  =  tan(horizon elevation) / tan(light elevation).
+//
+// The largest ratio along the ray is the horizon estimate; the point is in
+// shadow when it exceeds 1. A disc light of angular radius light_radius spans
+// 2r / (L.z * |L.xy|) in that ratio, which gives the penumbra ramp (0.5 when
+// the horizon cuts the light's centre).
+//
+// With only a few point samples, an occluder narrower than the sample spacing
+// is seen by one sample at a time and stamps a separate copy of its silhouette
+// per sample. Sampling a mip whose footprint is prefilter times the sample
+// spacing lets occluders between samples register; undersampling then
+// degrades to blur instead of ghost copies. (Mean-filtered heights
+// under-represent thin tall occluders, so this trades a little light leak
+// for smoothness: prefilter = 0 is sharpest, 1 is gap-free.)
+//
+// center is the texel at uv, which the shading pass has already fetched.
+const float XHS_MIN_RISE = 0.02;   // numerical guard: ~5 LSB of 8-bit height
+const float XHS_MAX_COT  = 4.0;    // look limiter: ray never flatter than ~14 deg
+
+float horizonShadow(vec2 uv, vec3 lightDir, vec4 center)
+{
+    if (lightDir.z <= 0.0) return 0.0;
+
+    float h0 = center.a;
+    float headroom = 1.0 - h0;
+    float hl = max(length(lightDir.xy), 1e-4);
+    float cot_l = min(hl / lightDir.z, XHS_MAX_COT);
+
+    // uv span of the in-volume part of the ray, and its rise per sample index
+    vec2 span = lightDir.xy * (depth_scale * cot_l * headroom / hl);
+    float inv_n = 1.0 / shadow_steps;
+    float spacing_texels = length(span) * inv_n * float(textureSize(tex_norm_mip, 0).x);
+    float lod = log2(max(prefilter * spacing_texels, 1.0));
+
+    float ratio = 0.0;
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= shadow_steps) break;
+        float f = (float(i) + 0.5) * inv_n;
+        float h = textureLod(tex_norm_mip, uv + span * f, lod).a;
+        ratio = max(ratio, (h - h0) / max(f * headroom, XHS_MIN_RISE));
+    }
+
+    float sin_cos = cot_l / (1.0 + cot_l * cot_l);   // sin(E) * cos(E)
+    return clamp(0.5 - (ratio - 1.0) * sin_cos / (2.0 * light_radius), 0.0, 1.0);
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -471,6 +528,9 @@ void main(void)
     } else {
         uv = (type < 2) ? frag_uv : parallax_uv(frag_uv, view_dir);
     }
+
+    // One fetch at the shaded point serves both the normal and the shadow origin
+    vec4 center = texture(tex_norm, uv);
 
     vec3 albedo = texture(tex_diffuse, uv).rgb;
     if (show_tex == 0) { albedo = vec3(1,1,1); }
@@ -487,6 +547,7 @@ void main(void)
     else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
     else if (shadow_type == 9) shadow = normalGuidedShadow(uv, light_dir);
     else if (shadow_type == 10) shadow = normalMappingShadow(uv, light_dir);
+    else if (shadow_type == 11) shadow = horizonShadow(uv, light_dir, center);
 
     if (type == 0) {
         // No bump mapping
@@ -496,7 +557,7 @@ void main(void)
 
     } else {
         // Normal mapping
-        vec3 norm = normalize(texture(tex_norm, uv).rgb * 2.0 - 1.0);
+        vec3 norm = normalize(center.rgb * 2.0 - 1.0);
         float diffuse = max(dot(light_dir, norm), 0.0);
         fragColor = vec4(diffuse * shadow * albedo + ambient, 1.0);
     }
