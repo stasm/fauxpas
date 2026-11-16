@@ -10,6 +10,8 @@ var shared = {
     selectedIndex: 0,
 };
 
+window.fauxpas = shared;   // debug/automation hook (see lab/shot.js)
+
 var MAX_INSTANCES = 4;
 
 // ---------------------------------------------------------------------------
