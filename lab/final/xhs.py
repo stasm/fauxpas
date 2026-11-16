@@ -23,6 +23,23 @@ def xhs(T, uv, L, ds, N, radius=0.05, max_cot=4.0, beta=0.0, min_rise=0.02, lod_
     sin_cos = cot / (1.0 + cot * cot)
     return np.clip(0.5 - (ratio - 1.0) * sin_cos / (2.0 * radius), 0.0, 1.0)
 
+def dho(T, uv, L, ds, N, reach=0.06, radius=0.25, beta=0.5, min_rise=0.02):
+    """Directional Horizon Occlusion: numpy mirror of directionalOcclusion() in shaders.js."""
+    h0 = T.center(uv)[..., 3]
+    hl = max(float(np.hypot(L[0], L[1])), 1e-4)
+    cot = hl / max(L[2], 1e-3)
+    ln = np.minimum(ds * cot * (1.0 - h0), reach)
+    rise = ln / (ds * cot)
+    span = (L[:2] / hl)[None, None, :] * ln[..., None]
+    lod = np.log2(np.maximum(beta * ln / N * T.size, 1.0))
+    ratio = np.zeros_like(h0)
+    for i in range(int(N)):
+        f = (i + 0.5) / N
+        h = T.sample(uv + span * f, lod)[..., 3]
+        ratio = np.maximum(ratio, (h - h0) / np.maximum(f * rise, min_rise))
+    tan_diff = cot * (1.0 - ratio) / (cot * cot + ratio)
+    return np.clip(0.5 + 0.5 * tan_diff / radius, 0.0, 1.0)
+
 def variant(**kw):
     return lambda T, uv, L, ds, N: xhs(T, uv, L, ds, N, **kw)
 

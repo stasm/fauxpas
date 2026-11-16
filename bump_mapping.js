@@ -28,6 +28,7 @@ var SHADOW_LABELS = {
     slope: 'Slope-Guided',
     nms: 'NMS',
     horizon: 'Horizon',
+    dho: 'Dir. Occlusion',
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ function update_cost_labels_from(N, S) {
         'slope':      '\u2264' + (1 + S) + ' tex',
         'nms':        (1 + S) + ' tex',
         'horizon':    S + ' tex',
+        'dho':        S + ' tex',
     };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);
@@ -97,7 +99,8 @@ function updateTitleBar(inst) {
     var shadingLabel = (SHADING_LABELS[s.shading_type] || s.shading_type)
         + (type >= 3 ? ' (n=' + s.steps + ')' : '');
     var shadowLabel = (SHADOW_LABELS[s.shadow_type] || s.shadow_type)
-        + (shadow > 0 ? ' (n=' + s.shadow_steps + ')': '');
+        + (shadow > 0 ? ' (n=' + s.shadow_steps + ')': '')
+        + (s.ao_on ? ' + AO' : '');
     inst.titleTextEl.textContent = shadingLabel + ', ' + shadowLabel;
 }
 
@@ -154,6 +157,12 @@ function syncControlsFromInstance(inst) {
     document.getElementById('prefilter').value = s.prefilter;
     document.getElementById('prefilter_val').textContent = parseFloat(s.prefilter).toFixed(2);
 
+    FLOAT_SLIDERS.forEach(function (d) {
+        document.getElementById(d[0]).value = s[d[0]];
+        document.getElementById(d[0] + '_val').textContent = parseFloat(s[d[0]]).toFixed(d[1]);
+    });
+    document.getElementById('ao_on').checked = s.ao_on;
+
     document.getElementById('haps_k').value = s.haps_k;
     document.getElementById('haps_k_val').textContent = parseFloat(s.haps_k).toFixed(2);
 
@@ -164,15 +173,33 @@ function syncControlsFromInstance(inst) {
     document.getElementById('step_control').style.visibility = type >= 3 ? 'visible' : 'hidden';
 
     var shadow = shadowTypeToInt(s.shadow_type);
-    document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-    document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
-    document.getElementById('light_radius_control').style.visibility = shadow == 11 ? 'visible' : 'hidden';
-    document.getElementById('prefilter_control').style.visibility = shadow == 11 ? 'visible' : 'hidden';
-    document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
+    updateShadowControls(shadow);
 
     // Cost labels
     update_cost_labels_from(s.steps, s.shadow_steps);
 }
+
+// Show only the sliders the selected shadow technique reads; rows are removed
+// from layout (not just hidden) so the list stays short.
+function updateShadowControls(shadow) {
+    var rows = {
+        shadow_step_control:  shadow > 0,
+        fxps_alpha_control:   shadow == 3 || shadow == 8,
+        haps_k_control:       shadow == 3,
+        light_radius_control: shadow == 11,
+        prefilter_control:    shadow == 11 || shadow == 12,
+        occ_reach_control:    shadow == 12,
+        occ_radius_control:   shadow == 12,
+    };
+    for (var id in rows) {
+        document.getElementById(id).style.display = rows[id] ? '' : 'none';
+    }
+}
+
+// Sliders that map 1:1 onto a float setting: [element id / settings key, decimals]
+var FLOAT_SLIDERS = [
+    ['occ_reach', 2], ['occ_radius', 2], ['ao_strength', 1], ['ao_radius', 2],
+];
 
 // ---------------------------------------------------------------------------
 // Control event binding (once, writes to selected instance)
@@ -213,11 +240,7 @@ function bindControlEvents() {
         shadowRadios[i].addEventListener('change', function () {
             sel().settings.shadow_type = this.value;
             var shadow = shadowTypeToInt(this.value);
-            document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-            document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
-            document.getElementById('light_radius_control').style.visibility = shadow == 11 ? 'visible' : 'hidden';
-            document.getElementById('prefilter_control').style.visibility = shadow == 11 ? 'visible' : 'hidden';
-            document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
+            updateShadowControls(shadow);
             updateTitleBar(sel());
         });
     }
@@ -254,6 +277,16 @@ function bindControlEvents() {
     document.getElementById('prefilter').addEventListener('input', function () {
         sel().settings.prefilter = parseFloat(this.value);
         document.getElementById('prefilter_val').textContent = sel().settings.prefilter.toFixed(2);
+    });
+    FLOAT_SLIDERS.forEach(function (d) {
+        document.getElementById(d[0]).addEventListener('input', function () {
+            sel().settings[d[0]] = parseFloat(this.value);
+            document.getElementById(d[0] + '_val').textContent = sel().settings[d[0]].toFixed(d[1]);
+        });
+    });
+    document.getElementById('ao_on').addEventListener('change', function () {
+        sel().settings.ao_on = this.checked;
+        updateTitleBar(sel());
     });
     document.getElementById('haps_k').addEventListener('input', function () {
         sel().settings.haps_k = parseFloat(this.value);

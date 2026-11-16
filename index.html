@@ -192,6 +192,7 @@
                 <input type="radio" name="shadow_type" value="hard"/>Hard POM <span class="cost" id="cost_shadow_hard"></span><br/>
                 <input type="radio" name="shadow_type" value="soft"/>Soft POM <span class="cost" id="cost_shadow_soft"></span><br/>
                 <input type="radio" name="shadow_type" value="horizon" checked/>Exit-clipped horizon <span class="cost" id="cost_shadow_horizon"></span><br/>
+                <input type="radio" name="shadow_type" value="dho"/>Directional occlusion <span class="cost" id="cost_shadow_dho"></span><br/>
                 <input type="radio" name="shadow_type" value="fxps"/>Fast Approximate <span class="cost" id="cost_shadow_fxps"></span><br/>
                 <input type="radio" name="shadow_type" value="haps"/>Height-adaptive <span class="cost" id="cost_shadow_haps"></span><br/>
                 <input type="radio" name="shadow_type" value="contact"/>Contact-hardening <span class="cost" id="cost_shadow_contact"></span><br/>
@@ -222,10 +223,33 @@
                     <td><input type="range" min="0" max="1" step="0.05" value="0.5" id="prefilter"/></td>
                     <td><span id="prefilter_val">0.50</span></td>
                 </tr>
+                <tr id="occ_reach_control">
+                    <td>Reach</td>
+                    <td><input type="range" min="0.01" max="0.4" step="0.01" value="0.06" id="occ_reach"/></td>
+                    <td><span id="occ_reach_val">0.06</span></td>
+                </tr>
+                <tr id="occ_radius_control">
+                    <td>Light size</td>
+                    <td><input type="range" min="0.02" max="1" step="0.01" value="0.25" id="occ_radius"/></td>
+                    <td><span id="occ_radius_val">0.25</span></td>
+                </tr>
                 <tr id="haps_k_control">
                     <td>k</td>
                     <td><input type="range" min="0" max="2" step="0.05" value="0.5" id="haps_k"/></td>
                     <td><span id="haps_k_val">0.50</span></td>
+                </tr>
+            </table>
+            <p><input type="checkbox" id="ao_on"/>Ambient cavity occlusion <span class="cost">(+1 tex)</span></p>
+            <table>
+                <tr>
+                    <td>Strength</td>
+                    <td><input type="range" min="0.1" max="6" step="0.1" value="2.5" id="ao_strength"/></td>
+                    <td><span id="ao_strength_val">2.5</span></td>
+                </tr>
+                <tr>
+                    <td>Radius</td>
+                    <td><input type="range" min="0.01" max="0.15" step="0.01" value="0.04" id="ao_radius"/></td>
+                    <td><span id="ao_radius_val">0.04</span></td>
                 </tr>
             </table>
         </div>

@@ -65,6 +65,10 @@ uniform float fxps_alpha;
 uniform float haps_k;
 uniform float light_radius;
 uniform float prefilter;
+uniform float occ_reach;
+uniform float occ_radius;
+uniform float ao_strength;
+uniform float ao_radius;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
@@ -516,6 +520,65 @@ float horizonShadow(vec2 uv, vec3 lightDir, vec4 center)
     return clamp(0.5 - (ratio - 1.0) * sin_cos / (2.0 * light_radius), 0.0, 1.0);
 }
 
+// Directional Horizon Occlusion (DHO)
+//
+// The same horizon test as horizonShadow, with the two things that make FXPS
+// behave like ambient occlusion turned into explicit parameters:
+//
+//   occ_reach   how far toward the light to look, in uv. The ray is still
+//               clipped to the height volume, but never longer than this, so
+//               it cannot produce long (and at 4 samples, error-prone) shadows.
+//   occ_radius  angular radius of the virtual light (rad). Large values turn
+//               the shadow edge into a broad occlusion gradient.
+//
+// Short reach + large radius = deliberate FXPS-style directional occlusion;
+// long reach + small radius = horizonShadow. Because the light may be large,
+// the ramp is evaluated on the angle between light and horizon,
+// tan(E - horizon) / radius, instead of horizonShadow's linearised ratio.
+float directionalOcclusion(vec2 uv, vec3 lightDir, vec4 center)
+{
+    if (lightDir.z <= 0.0) return 0.0;
+
+    float h0 = center.a;
+    float hl = max(length(lightDir.xy), 1e-4);
+    float cot_l = hl / max(lightDir.z, 1e-3);
+
+    float len = min(depth_scale * cot_l * (1.0 - h0), occ_reach);   // uv length sampled
+    float rise = len / (depth_scale * cot_l);                       // ray rise over it
+    vec2 span = lightDir.xy * (len / hl);
+    float inv_n = 1.0 / shadow_steps;
+    float spacing_texels = len * inv_n * float(textureSize(tex_norm_mip, 0).x);
+    float lod = log2(max(prefilter * spacing_texels, 1.0));
+
+    float ratio = 0.0;
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= shadow_steps) break;
+        float f = (float(i) + 0.5) * inv_n;
+        float h = textureLod(tex_norm_mip, uv + span * f, lod).a;
+        ratio = max(ratio, (h - h0) / max(f * rise, XHS_MIN_RISE));
+    }
+
+    // tan(E - horizon), with tan(horizon) = ratio / cot_l
+    float tan_diff = cot_l * (1.0 - ratio) / (cot_l * cot_l + ratio);
+    return clamp(0.5 + 0.5 * tan_diff / occ_radius, 0.0, 1.0);
+}
+
+// Cavity occlusion for the ambient term (1 fetch).
+//
+// A mip-blurred height is the mean height of the neighbourhood within about
+// ao_radius (uv). If that mean is above the shaded point by dh, the
+// surroundings form a horizon of slope t = depth_scale * dh / ao_radius, and
+// a cosine-weighted sky above a uniform horizon of that slope has visibility
+// cos^2 = 1 / (1 + t^2). ao_strength scales t; it is a look parameter that
+// compensates for a mean under-stating the true horizon.
+float cavityOcclusion(vec2 uv, float h0)
+{
+    float lod = log2(max(ao_radius * float(textureSize(tex_norm_mip, 0).x), 1.0));
+    float mean_h = textureLod(tex_norm_mip, uv, lod).a;
+    float t = ao_strength * depth_scale * max(mean_h - h0, 0.0) / ao_radius;
+    return 1.0 / (1.0 + t * t);
+}
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -548,6 +611,9 @@ void main(void)
     else if (shadow_type == 9) shadow = normalGuidedShadow(uv, light_dir);
     else if (shadow_type == 10) shadow = normalMappingShadow(uv, light_dir);
     else if (shadow_type == 11) shadow = horizonShadow(uv, light_dir, center);
+    else if (shadow_type == 12) shadow = directionalOcclusion(uv, light_dir, center);
+
+    if (ao_strength > 0.0) ambient *= cavityOcclusion(uv, center.a);
 
     if (type == 0) {
         // No bump mapping

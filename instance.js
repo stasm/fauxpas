@@ -33,6 +33,7 @@ export function shadowTypeToInt(val) {
         case "slope":      return 9;
         case "nms":        return 10;
         case "horizon":    return 11;
+        case "dho":        return 12;
         default:           return 0;
     }
 }
@@ -59,6 +60,11 @@ export function createInstance(canvasEl) {
         haps_k:       0.5,
         light_radius: 0.05,
         prefilter:    0.5,
+        occ_reach:    0.06,
+        occ_radius:   0.25,
+        ao_on:        false,
+        ao_strength:  2.5,
+        ao_radius:    0.04,
     };
 
     var gl;
@@ -236,6 +242,10 @@ export function renderInstance(inst, time) {
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "haps_k"), s.haps_k);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "light_radius"), s.light_radius);
     gl.uniform1f(gl.getUniformLocation(inst.pgm, "prefilter"), s.prefilter);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "occ_reach"), s.occ_reach);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "occ_radius"), s.occ_radius);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "ao_strength"), s.ao_on ? s.ao_strength : 0.0);
+    gl.uniform1f(gl.getUniformLocation(inst.pgm, "ao_radius"), s.ao_radius);
 
     // Draw
     gl.bindBuffer(gl.ARRAY_BUFFER, inst.vbo_pos);
@@ -282,7 +292,9 @@ export function renderInstance(inst, time) {
         case "slope":      shadow_samples = 1 + S; break;
         case "nms":        shadow_samples = 1 + S; break;
         case "horizon":    shadow_samples = S; break;
+        case "dho":        shadow_samples = S; break;
     }
+    if (s.ao_on) shadow_samples += 1;
     var total_samples = parallax_samples + shadow_samples;
     var time_str = inst.frame_time_avg < 1
         ? (inst.frame_time_avg * 1000).toFixed(0) + " \u00B5s"
