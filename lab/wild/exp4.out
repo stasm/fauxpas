@@ -1,0 +1,49 @@
+fxps N=3                     rmse=0.2100 lit=0.1040 blur=0.0756 bias=-0.0084 flicker=1.11 fetches=3.0
+fxps N=4                     rmse=0.2100 lit=0.1044 blur=0.0762 bias=-0.0133 flicker=1.11 fetches=4.0
+fxps rise=0 N=3              rmse=0.2232 lit=0.1133 blur=0.0850 bias=-0.0192 flicker=1.13 fetches=3.0
+fxps rise=0 N=4              rmse=0.2269 lit=0.1154 blur=0.0872 bias=-0.0253 flicker=1.14 fetches=4.0
+fxps elev frozen 30 N=3      rmse=0.2751 lit=0.1463 blur=0.1175 bias=-0.0282 flicker=1.31 fetches=3.0
+fxps elev frozen 30 N=4      rmse=0.2782 lit=0.1483 blur=0.1192 bias=-0.0343 flicker=1.33 fetches=4.0
+  fxps           bump   e=  15 lit=0.098 blur=0.088 bias=+0.034 flick=0.79
+  fxps           bump   e=  30 lit=0.054 blur=0.042 bias=-0.012 flick=1.00
+  fxps           bump   e=  50 lit=0.095 blur=0.079 bias=-0.034 flick=1.14
+  fxps           bump   e=  70 lit=0.079 blur=0.063 bias=-0.025 flick=1.35
+  fxps           bricks e=  15 lit=0.059 blur=0.032 bias=+0.011 flick=1.45
+  fxps           bricks e=  30 lit=0.070 blur=0.036 bias=-0.003 flick=1.11
+  fxps           bricks e=  50 lit=0.114 blur=0.071 bias=-0.022 flick=1.24
+  fxps           bricks e=  70 lit=0.169 blur=0.129 bias=-0.057 flick=1.37
+  fxps           rocks  e=  15 lit=0.120 blur=0.080 bias=+0.029 flick=1.20
+  fxps           rocks  e=  30 lit=0.098 blur=0.054 bias=+0.012 flick=0.78
+  fxps           rocks  e=  50 lit=0.129 blur=0.094 bias=-0.035 flick=0.73
+  fxps           rocks  e=  70 lit=0.167 blur=0.145 bias=-0.057 flick=1.20
+unsharp c0.25 lod0.0 g3 N=4  rmse=0.2549 lit=0.1238 blur=0.0926 bias=+0.0361 flicker=1.03 fetches=1.0
+unsharp c0.25 lod0.0 g8 N=4  rmse=0.2287 lit=0.1100 blur=0.0750 bias=+0.0282 flicker=1.07 fetches=1.0
+unsharp c0.25 lod2.0 g3 N=4  rmse=0.2596 lit=0.1263 blur=0.0951 bias=+0.0372 flicker=1.02 fetches=1.0
+unsharp c0.25 lod2.0 g8 N=4  rmse=0.2347 lit=0.1130 blur=0.0780 bias=+0.0294 flicker=1.07 fetches=1.0
+unsharp c0.25 lod3.5 g3 N=4  rmse=0.2685 lit=0.1301 blur=0.0996 bias=+0.0377 flicker=0.98 fetches=1.0
+unsharp c0.25 lod3.5 g8 N=4  rmse=0.2506 lit=0.1227 blur=0.0854 bias=+0.0258 flicker=1.01 fetches=1.0
+unsharp c0.5 lod0.0 g3 N=4   rmse=0.2744 lit=0.1330 blur=0.1038 bias=+0.0410 flicker=1.05 fetches=1.0
+unsharp c0.5 lod0.0 g8 N=4   rmse=0.2543 lit=0.1203 blur=0.0877 bias=+0.0329 flicker=1.10 fetches=1.0
+unsharp c0.5 lod2.0 g3 N=4   rmse=0.2783 lit=0.1358 blur=0.1064 bias=+0.0421 flicker=1.05 fetches=1.0
+unsharp c0.5 lod2.0 g8 N=4   rmse=0.2592 lit=0.1238 blur=0.0909 bias=+0.0343 flicker=1.09 fetches=1.0
+unsharp c0.5 lod3.5 g3 N=4   rmse=0.2921 lit=0.1451 blur=0.1158 bias=+0.0461 flicker=1.03 fetches=1.0
+unsharp c0.5 lod3.5 g8 N=4   rmse=0.2764 lit=0.1359 blur=0.1033 bias=+0.0393 flicker=1.07 fetches=1.0
+cavity lod3.0 g1 N=4         rmse=0.3199 lit=0.1576 blur=0.1307 bias=+0.0480 flicker=0.94 fetches=1.0
+cavity lod3.0 g2 N=4         rmse=0.3085 lit=0.1522 blur=0.1245 bias=+0.0375 flicker=0.90 fetches=1.0
+cavity lod5.0 g1 N=4         rmse=0.2963 lit=0.1504 blur=0.1241 bias=+0.0181 flicker=0.84 fetches=1.0
+cavity lod5.0 g2 N=4         rmse=0.3127 lit=0.1688 blur=0.1394 bias=-0.0196 flicker=0.71 fetches=1.0
+vsm lod2.0 vmin0.001 N=4     rmse=0.5533 lit=0.3371 blur=0.3236 bias=-0.2261 flicker=0.97 fetches=2.0
+vsm lod2.0 vmin0.01 N=4      rmse=0.6820 lit=0.4151 blur=0.4023 bias=-0.3138 flicker=0.83 fetches=2.0
+vsm lod3.0 vmin0.001 N=4     rmse=0.5248 lit=0.3190 blur=0.3049 bias=-0.2177 flicker=0.98 fetches=2.0
+vsm lod3.0 vmin0.01 N=4      rmse=0.6559 lit=0.3982 blur=0.3862 bias=-0.3024 flicker=0.81 fetches=2.0
+vsm lod4.0 vmin0.001 N=4     rmse=0.5005 lit=0.3002 blur=0.2818 bias=-0.2108 flicker=0.82 fetches=2.0
+vsm lod4.0 vmin0.01 N=4      rmse=0.6131 lit=0.3694 blur=0.3561 bias=-0.2847 flicker=0.65 fetches=2.0
+cheb1 b0.25 var0.003 N=4     rmse=0.6429 lit=0.3926 blur=0.3778 bias=-0.2811 flicker=0.88 fetches=1.0
+cheb1 b0.25 var0.01 N=4      rmse=0.6950 lit=0.4230 blur=0.4093 bias=-0.3213 flicker=0.79 fetches=1.0
+cheb1 b0.25 var0.03 N=4      rmse=0.7322 lit=0.4437 blur=0.4311 bias=-0.3572 flicker=0.67 fetches=1.0
+cheb1 b0.5 var0.003 N=4      rmse=0.6425 lit=0.3924 blur=0.3776 bias=-0.2814 flicker=0.80 fetches=1.0
+cheb1 b0.5 var0.01 N=4       rmse=0.6943 lit=0.4227 blur=0.4091 bias=-0.3221 flicker=0.71 fetches=1.0
+cheb1 b0.5 var0.03 N=4       rmse=0.7318 lit=0.4435 blur=0.4311 bias=-0.3585 flicker=0.60 fetches=1.0
+cheb1 b1.0 var0.003 N=4      rmse=0.6431 lit=0.3927 blur=0.3774 bias=-0.2820 flicker=0.73 fetches=1.0
+cheb1 b1.0 var0.01 N=4       rmse=0.6949 lit=0.4229 blur=0.4093 bias=-0.3241 flicker=0.63 fetches=1.0
+cheb1 b1.0 var0.03 N=4       rmse=0.7338 lit=0.4445 blur=0.4321 bias=-0.3620 flicker=0.52 fetches=1.0
