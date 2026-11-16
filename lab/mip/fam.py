@@ -10,7 +10,7 @@ def ign(shape):
 
 def fam(T, uv, L, ds, N, sched='uni', lodmode='match', lodbias=0.0, range_cap=None, range_frac=1.0,
         wmode='rise', wk=1.0, wmin=0.0, hbias=0.0, combine='min', jitter=0.0, ratio=2.0, power=2.0,
-        off=0.5, shape='lin', fade=False, lodconst=0.0, conek=0.1, baselod=0.0, basemode='max'):
+        off=0.5, shape='lin', fade=False, lodconst=0.0, conek=0.1, baselod=0.0, basemode='max', wd=0.0, R=0.05):
     N = int(N)
     c = T._sample(uv, baselod); h0 = c[..., 3]
     hl = float(np.hypot(L[0], L[1])); Lz = float(L[2])
@@ -41,6 +41,8 @@ def fam(T, uv, L, ds, N, sched='uni', lodmode='match', lodbias=0.0, range_cap=No
             lod = np.maximum(lod, 0.0)
         elif lodmode == 'cone':                      # footprint = conek * distance travelled
             lod = np.maximum(np.log2(np.maximum(conek * tau * hl * T.size, 1e-3)), 0.0)
+        elif lodmode == 'light':                     # footprint = light-cone diameter 2R*tau
+            lod = np.maximum(np.log2(np.maximum(conek * 2 * R * tau * T.size, 1e-3)), 0.0)
         elif lodmode == 'const':
             lod = lodconst
         else:
@@ -54,6 +56,10 @@ def fam(T, uv, L, ds, N, sched='uni', lodmode='match', lodbias=0.0, range_cap=No
             w = wk * Lz * tau_max * s / ds
         elif wmode == 'dist':     # proportional to distance (cone / area light)
             w = wk * rise
+        elif wmode == 'mix':      # wk * cell rise + wd * distance rise
+            w = wk * Lz * tau_max * s / ds + wd * rise
+        elif wmode == 'phys':     # area light of angular radius R: slope ratio spread = 2R/(Lz*hl)
+            w = wk * rise * 2 * R / (Lz * hl)
         elif wmode == 'const':
             w = wk
         x = np.clip((pen + off * w) / (w + wmin + 1e-6), 0.0, 1.0)
