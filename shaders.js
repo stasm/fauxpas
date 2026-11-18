@@ -67,8 +67,6 @@ uniform float light_radius;
 uniform float prefilter;
 uniform float occ_reach;
 uniform float occ_radius;
-uniform float ao_strength;
-uniform float ao_radius;
 
 in vec2 frag_uv;
 in vec3 ts_light_pos;
@@ -563,22 +561,6 @@ float directionalOcclusion(vec2 uv, vec3 lightDir, vec4 center)
     return clamp(0.5 + 0.5 * tan_diff / occ_radius, 0.0, 1.0);
 }
 
-// Cavity occlusion for the ambient term (1 fetch).
-//
-// A mip-blurred height is the mean height of the neighbourhood within about
-// ao_radius (uv). If that mean is above the shaded point by dh, the
-// surroundings form a horizon of slope t = depth_scale * dh / ao_radius, and
-// a cosine-weighted sky above a uniform horizon of that slope has visibility
-// cos^2 = 1 / (1 + t^2). ao_strength scales t; it is a look parameter that
-// compensates for a mean under-stating the true horizon.
-float cavityOcclusion(vec2 uv, float h0)
-{
-    float lod = log2(max(ao_radius * float(textureSize(tex_norm_mip, 0).x), 1.0));
-    float mean_h = textureLod(tex_norm_mip, uv, lod).a;
-    float t = ao_strength * depth_scale * max(mean_h - h0, 0.0) / ao_radius;
-    return 1.0 / (1.0 + t * t);
-}
-
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -612,8 +594,6 @@ void main(void)
     else if (shadow_type == 10) shadow = normalMappingShadow(uv, light_dir);
     else if (shadow_type == 11) shadow = horizonShadow(uv, light_dir, center);
     else if (shadow_type == 12) shadow = directionalOcclusion(uv, light_dir, center);
-
-    if (ao_strength > 0.0) ambient *= cavityOcclusion(uv, center.a);
 
     if (type == 0) {
         // No bump mapping

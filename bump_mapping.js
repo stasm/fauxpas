@@ -99,8 +99,7 @@ function updateTitleBar(inst) {
     var shadingLabel = (SHADING_LABELS[s.shading_type] || s.shading_type)
         + (type >= 3 ? ' (n=' + s.steps + ')' : '');
     var shadowLabel = (SHADOW_LABELS[s.shadow_type] || s.shadow_type)
-        + (shadow > 0 ? ' (n=' + s.shadow_steps + ')': '')
-        + (s.ao_on ? ' + AO' : '');
+        + (shadow > 0 ? ' (n=' + s.shadow_steps + ')': '');
     inst.titleTextEl.textContent = shadingLabel + ', ' + shadowLabel;
 }
 
@@ -161,7 +160,6 @@ function syncControlsFromInstance(inst) {
         document.getElementById(d[0]).value = s[d[0]];
         document.getElementById(d[0] + '_val').textContent = parseFloat(s[d[0]]).toFixed(d[1]);
     });
-    document.getElementById('ao_on').checked = s.ao_on;
 
     document.getElementById('haps_k').value = s.haps_k;
     document.getElementById('haps_k_val').textContent = parseFloat(s.haps_k).toFixed(2);
@@ -198,7 +196,7 @@ function updateShadowControls(shadow) {
 
 // Sliders that map 1:1 onto a float setting: [element id / settings key, decimals]
 var FLOAT_SLIDERS = [
-    ['occ_reach', 2], ['occ_radius', 2], ['ao_strength', 1], ['ao_radius', 2],
+    ['occ_reach', 2], ['occ_radius', 2],
 ];
 
 // ---------------------------------------------------------------------------
@@ -283,10 +281,6 @@ function bindControlEvents() {
             sel().settings[d[0]] = parseFloat(this.value);
             document.getElementById(d[0] + '_val').textContent = sel().settings[d[0]].toFixed(d[1]);
         });
-    });
-    document.getElementById('ao_on').addEventListener('change', function () {
-        sel().settings.ao_on = this.checked;
-        updateTitleBar(sel());
     });
     document.getElementById('haps_k').addEventListener('input', function () {
         sel().settings.haps_k = parseFloat(this.value);

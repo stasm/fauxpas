@@ -127,7 +127,7 @@ The live demo was checked by eye only.</li>
 <h2>Leaning into occlusion instead</h2>
 <p>FXPS being occlusion rather than shadow is not in itself a defect: for grounding, a short soft
 directional darkening may be all that is needed, and it cannot ghost or pop. The shadow reference used
-above cannot judge that, so these two variants are in the demo to be judged by eye next to FXPS and XHS.</p>
+above cannot judge that, so this variant is in the demo to be judged by eye next to FXPS and XHS.</p>
 <ul>
 <li><b>Directional occlusion</b> (<code>directionalOcclusion</code>) is the same horizon test with FXPS's
 two accidental properties made into parameters: <i>reach</i>, a cap on how far toward the light the ray
@@ -136,14 +136,6 @@ and a large light give FXPS-like behaviour that still respects the light's eleva
 raising the reach and shrinking the light moves continuously back to XHS. Against the shadow reference
 the default (reach 0.06, radius 0.25) scores lit RMSE 0.051 at 4 samples &mdash; between FXPS and XHS, as expected
 of something that is not trying to be a shadow.</li>
-<li><b>Ambient cavity occlusion</b> (<code>cavityOcclusion</code>, one fetch, optional with any shadow
-type). The shadow term only scales direct light; the ambient term was a flat 0.3, so anything already in
-shadow had no grounding at all. A mip-blurred height gives the mean height of the neighbourhood within a
-radius; if it stands above the shaded point by <code>dh</code>, the surroundings form a horizon of slope
-<code>t = depth_scale * dh / radius</code>, under which a cosine-weighted sky has visibility
-<code>1 / (1 + t&sup2;)</code>. That factor multiplies the ambient term only. The strength multiplier on
-<code>t</code> is a look parameter (a mean under-states the true horizon). A 3 + 1 split (three shadow
-samples, one cavity sample) costs the same as four shadow samples.</li>
 </ul>
 
 <h2>What was tried and dropped</h2>

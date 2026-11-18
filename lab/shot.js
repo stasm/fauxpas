@@ -29,8 +29,7 @@ const mime = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/pn
     if ((c.shadow || 'none') !== 'none') await set('shadow_steps', c.shadow_steps ?? 4);
     if (c.prefilter !== undefined) await set('prefilter', c.prefilter);
     if (c.light_radius !== undefined) await set('light_radius', c.light_radius);
-    for (const k of ['occ_reach', 'occ_radius', 'ao_strength', 'ao_radius']) if (c[k] !== undefined) await set(k, c[k]);
-    if (c.ao) await page.check('#ao_on');
+    for (const k of ['occ_reach', 'occ_radius']) if (c[k] !== undefined) await set(k, c[k]);
     if (c.show_tex === false) await page.uncheck('#show_tex');
   }
   await page.evaluate(t => { window.fauxpas.paused = true; window.fauxpas.time = t; }, parseFloat(time));
