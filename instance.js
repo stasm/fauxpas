@@ -38,6 +38,17 @@ export function shadowTypeToInt(val) {
     }
 }
 
+// Texture filtering modes, mirroring OpenMW's options
+// (SceneManager::setFilterSettings): [min filter, mag filter].
+function texFilterParams(gl, mode) {
+    switch (mode) {
+        case "none":     return [gl.LINEAR, gl.LINEAR];                  // texture mipmap = none
+        case "nearest":  return [gl.NEAREST_MIPMAP_NEAREST, gl.NEAREST]; // mag/min = nearest
+        case "bilinear": return [gl.LINEAR_MIPMAP_NEAREST, gl.LINEAR];   // texture mipmap = nearest (default)
+        default:         return [gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR];    // texture mipmap = linear
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Instance factory
 // ---------------------------------------------------------------------------
@@ -50,6 +61,7 @@ export function createInstance(canvasEl) {
     inst.settings = {
         tex_set:      0,
         show_tex:     true,
+        tex_filter:   'trilinear',
         shading_type: 'iterative',
         shadow_type:  'fxps',
         scale:        8,
@@ -202,6 +214,14 @@ export function renderInstance(inst, time) {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, set.diffuse);
     gl.uniform1i(gl.getUniformLocation(inst.pgm, "tex_diffuse"), 1);
+
+    // Texture filtering (applied every frame: cheap, and covers late async loads)
+    var filt = texFilterParams(gl, s.tex_filter);
+    for (var unit = 0; unit < 2; unit++) {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt[0]);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt[1]);
+    }
 
     // Technique uniforms
     var type = shadingTypeToInt(s.shading_type);

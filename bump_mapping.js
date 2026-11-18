@@ -123,6 +123,10 @@ function syncControlsFromInstance(inst) {
     // Show tex checkbox
     document.getElementById('show_tex').checked = s.show_tex;
 
+    // Texture filtering radio
+    var filterRadio = document.querySelector('input[name="tex_filter"][value="' + s.tex_filter + '"]');
+    if (filterRadio) filterRadio.checked = true;
+
     // Shading type radio
     var shadingRadio = document.querySelector('input[name="shading_type"][value="' + s.shading_type + '"]');
     if (shadingRadio) shadingRadio.checked = true;
@@ -184,6 +188,14 @@ function bindControlEvents() {
     document.getElementById('show_tex').addEventListener('change', function () {
         sel().settings.show_tex = this.checked;
     });
+
+    // Texture filtering radios
+    var filterRadios = document.querySelectorAll('input[name="tex_filter"]');
+    for (var i = 0; i < filterRadios.length; i++) {
+        filterRadios[i].addEventListener('change', function () {
+            sel().settings.tex_filter = this.value;
+        });
+    }
 
     // Shading type radios
     var shadingRadios = document.querySelectorAll('input[name="shading_type"]');

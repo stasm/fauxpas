@@ -108,7 +108,7 @@ All three texture sets share the same layout:
 - `tex_norm` (TEXTURE0): RGB = tangent-space normal, **A = height (0 = bottom, 1 = top)**
 - `tex_diffuse` (TEXTURE1): RGB = diffuse color
 
-Textures are mipmapped (`LINEAR_MIPMAP_LINEAR`, via `generateMipmap` once loaded). `horizonShadow` relies on this through the `bias` argument of `texture()`.
+Textures get a full mip chain (`generateMipmap` once loaded). Filtering is a per-instance setting, `tex_filter`, applied each frame in `renderInstance` via `texFilterParams()`. It mirrors OpenMW's options: `none` (LINEAR, no mips), `nearest` (NEAREST_MIPMAP_NEAREST / NEAREST), `bilinear` (LINEAR_MIPMAP_NEAREST, OpenMW's default) and `trilinear` (LINEAR_MIPMAP_LINEAR, the demo's default). `horizonShadow` relies on mips through the `bias` argument of `texture()`.
 
 The fragment shader reads height as `texture(tex_norm, uv).a`. The `texDepth()` helper inverts this to depth convention (`1.0 - height`).
 

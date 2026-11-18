@@ -26,8 +26,7 @@ export function load_texture(gl, img_path) {
     img.onload = function () {
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        // Filters are set per frame from the instance's tex_filter setting.
         gl.generateMipmap(gl.TEXTURE_2D);
     }
     img.src = img_path;
