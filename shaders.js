@@ -459,6 +459,82 @@ float normalGuidedShadow(vec2 uv, vec3 lightDir)
     return clamp(1.0 - maxShadow * shadow_steps, 0.0, 1.0);
 }
 
+// ---------------------------------------------------------------------------
+// Uniform-free variants (portable to GLSL 1.20 / OpenMW): no textureSize,
+// no textureLod; only fwidth() and the bias argument of texture().
+// ---------------------------------------------------------------------------
+const float HZ_MAX_TAN  = 4.0;   // clamp reach at grazing light (~76 deg from vertical)
+const float HZ_SPREAD   = 8.0;   // sMax / sMin when not limited by pixel footprint
+const float HZ_SOFTNESS = 0.3;   // penumbra width, relative to tan(light elevation)
+
+// Physical reach: farthest UV distance at which anything (height <= 1) can occlude.
+float physicalReach(float h, vec3 L)
+{
+    float lenXY = length(L.xy);
+    return depth_scale * min(lenXY / max(L.z, 1e-4), HZ_MAX_TAN) * (1.0 - h);
+}
+
+// Horizon-slope shadow: N samples geometrically spaced in [sMin, sMax] along the
+// light direction; each sample reads a mip level matching the gap it covers.
+float horizonShadow(vec2 uv, vec3 L)
+{
+    vec2 fw = fwidth(uv);
+    float footprint = max(max(fw.x, fw.y), 1e-6);
+
+    float h = texture(tex_norm, uv).a;
+    float lenXY = length(L.xy);
+    if (L.z <= 0.0) return 0.0;
+    if (lenXY < 1e-4) return 1.0;
+
+    vec2  dir      = L.xy / lenXY;
+    float lightTan = L.z / lenXY;
+    float sMax = physicalReach(h, L);
+    float sMin = max(footprint, sMax / HZ_SPREAD);
+    if (sMax <= sMin) return 1.0;
+
+    float r = shadow_steps > 1.0 ? pow(sMax / sMin, 1.0 / (shadow_steps - 1.0)) : 1.0;
+    float s = shadow_steps > 1.0 ? sMin : sMax;
+    float sPrev = 0.0;
+    float horizon = 0.0;
+    for (int i = 0; i < 32; i++) {
+        if (float(i) >= shadow_steps) break;
+        // bias = log2(gap / footprint) lands on lod log2(gap * texSize)
+        // without knowing texSize.
+        float bias = log2(max((s - sPrev) / footprint, 1.0));
+        float H = texture(tex_norm, uv + dir * s, bias).a;
+        horizon = max(horizon, (H - h) * depth_scale / s);
+        sPrev = s;
+        s *= r;
+    }
+    // Lit while horizon < light; fully dark at (1 + HZ_SOFTNESS) x light elevation (in tan).
+    return clamp(1.0 - (horizon / lightTan - 1.0) / HZ_SOFTNESS, 0.0, 1.0);
+}
+
+// FXPS with a physically sloped ray and physical reach; otherwise unchanged
+// (power-law t, 1/i weighting, strength = N).
+float fxpsPhysical(vec2 uv, vec3 L)
+{
+    float h = texture(tex_norm, uv).a;
+    float lenXY = length(L.xy);
+    if (L.z <= 0.0) return 0.0;
+    if (lenXY < 1e-4) return 1.0;
+
+    vec2  dir      = L.xy / lenXY;
+    float lightTan = L.z / lenXY;
+    float sMax = physicalReach(h, L);
+
+    float shadow = 0.0;
+    for (int i = 1; i <= 32; i++) {
+        if (float(i) > shadow_steps) break;
+        float s = sMax * pow(float(i) / shadow_steps, fxps_alpha);
+        float rayHeight = h + s * lightTan / depth_scale;
+        float sampleHeight = texture(tex_norm, uv + dir * s).a;
+        shadow = max(shadow, (sampleHeight - rayHeight) / float(i));
+    }
+    return clamp(1.0 - shadow * shadow_steps, 0.0, 1.0);
+}
+
+
 void main(void)
 {
     vec3 light_dir = normalize(ts_light_pos - ts_frag_pos);
@@ -487,6 +563,8 @@ void main(void)
     else if (shadow_type == 8) shadow = fastApproximateShadow(uv, light_dir);
     else if (shadow_type == 9) shadow = normalGuidedShadow(uv, light_dir);
     else if (shadow_type == 10) shadow = normalMappingShadow(uv, light_dir);
+    else if (shadow_type == 11) shadow = horizonShadow(uv, light_dir);
+    else if (shadow_type == 12) shadow = fxpsPhysical(uv, light_dir);
 
     if (type == 0) {
         // No bump mapping

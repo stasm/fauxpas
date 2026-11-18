@@ -25,6 +25,7 @@ var SHADOW_LABELS = {
     binary: 'Binary Search', cone: 'Cone Traced', relief: 'Relief',
     slope: 'Slope-Guided',
     nms: 'NMS',
+    horizon: 'Horizon', fxps_phys: 'FXPS-phys',
 };
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,8 @@ function update_cost_labels_from(N, S) {
         'relief':     '\u2264' + (S + 7) + ' tex',
         'slope':      '\u2264' + (1 + S) + ' tex',
         'nms':        (1 + S) + ' tex',
+        'horizon':    (1 + S) + ' tex',
+        'fxps_phys':  (1 + S) + ' tex',
     };
     for (var val in shading_costs) {
         var el = document.getElementById('cost_shading_' + val);
@@ -155,7 +158,7 @@ function syncControlsFromInstance(inst) {
 
     var shadow = shadowTypeToInt(s.shadow_type);
     document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-    document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
+    document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8 || shadow == 12) ? 'visible' : 'hidden';
     document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
 
     // Cost labels
@@ -202,7 +205,7 @@ function bindControlEvents() {
             sel().settings.shadow_type = this.value;
             var shadow = shadowTypeToInt(this.value);
             document.getElementById('shadow_step_control').style.visibility = shadow > 0 ? 'visible' : 'hidden';
-            document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8) ? 'visible' : 'hidden';
+            document.getElementById('fxps_alpha_control').style.visibility = (shadow == 3 || shadow == 8 || shadow == 12) ? 'visible' : 'hidden';
             document.getElementById('haps_k_control').style.visibility = shadow == 3 ? 'visible' : 'hidden';
             updateTitleBar(sel());
         });

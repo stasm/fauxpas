@@ -94,6 +94,10 @@ The shader uses **GLSL ES 3.00** (`#version 300 es`), i.e., WebGL 2. Do not use 
 | 6 | Cone Traced | `coneTracedShadow` |
 | 7 | Relief | `reliefMappingShadow` |
 | 8 | FXPS | `fastApproximateShadow` (fixed α = `fxps_alpha`) |
+| 9 | Slope-guided | `normalGuidedShadow` |
+| 10 | NMS | `normalMappingShadow` |
+| 11 | Horizon | `horizonShadow` (geometric spacing, mip-biased samples, uniform-free / GLSL 1.20-portable) |
+| 12 | FXPS-phys | `fxpsPhysical` (FXPS with physically sloped ray and reach) |
 
 3. **`main()`** — dispatches to the selected parallax and shadow functions, then applies Lambertian shading with a constant 0.3 ambient term.
 
@@ -103,6 +107,8 @@ All three texture sets share the same layout:
 
 - `tex_norm` (TEXTURE0): RGB = tangent-space normal, **A = height (0 = bottom, 1 = top)**
 - `tex_diffuse` (TEXTURE1): RGB = diffuse color
+
+Textures are mipmapped (`LINEAR_MIPMAP_LINEAR`, via `generateMipmap` once loaded). `horizonShadow` relies on this through the `bias` argument of `texture()`.
 
 The fragment shader reads height as `texture(tex_norm, uv).a`. The `texDepth()` helper inverts this to depth convention (`1.0 - height`).
 

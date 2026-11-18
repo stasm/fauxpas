@@ -32,6 +32,8 @@ export function shadowTypeToInt(val) {
         case "fxps":       return 8;
         case "slope":      return 9;
         case "nms":        return 10;
+        case "horizon":    return 11;
+        case "fxps_phys":  return 12;
         default:           return 0;
     }
 }
@@ -263,6 +265,8 @@ export function renderInstance(inst, time) {
         case "cone":       shadow_samples = 1 + S; break;
         case "relief":     shadow_samples = S + 7; break;
         case "slope":      shadow_samples = 1 + S; break;
+        case "horizon":    shadow_samples = 1 + S; break;
+        case "fxps_phys":  shadow_samples = 1 + S; break;
     }
     var total_samples = parallax_samples + shadow_samples;
     var time_str = inst.frame_time_avg < 1
